@@ -56,7 +56,12 @@ import android.text.TextWatcher;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.View;
 import android.widget.EditText;
+
+import com.jcraft.jsch.ChannelShell;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ScreenTextView extends EditText
         implements TextWatcher {
@@ -64,21 +69,13 @@ public class ScreenTextView extends EditText
 
     public static final int CURSOR_HALFCYCLE_MS = 512;
 
-    private final char[] eightspaces = { ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ' };
-
-    private char[] twt;                          // theWholeText array ring buffer
-    private int twb;                             // base of all other indices
-    private int twm;                             // twt.length - 1 (always power-of-two - 1)
-    private int tws;                             // twt.length (always power-of-two)
-
-    private boolean cursorFlag;                  // blinks the cursor
+    private AtomicBoolean invalTextImmPend = new AtomicBoolean (false);
     private boolean frozen;                      // indicates frozen mode
-    private boolean needToRender;                // next onDraw() needs to create theWholeText->visibleLine{Beg,End}s{} mapping
+    private boolean invalTextDelPend;
     private boolean readingkb;                   // set when reading keyboard text buffer (to handle recursion)
     private boolean selectActive;                // the 'b' key has been pressed to begin text selection
     private float savedTextSize;                 // most recently set text size (don't trust getTextSize ())
     private int charWidthInPixels;               // width of one character
-    private int insertpoint;                     // where next incoming text gets inserted in theWholeText
     private int lastsentptychrcols;
     private int lastsentptychrrows;
     private int lastsentptypixcols;
@@ -86,30 +83,26 @@ public class ScreenTextView extends EditText
     private int lineHeightInPixels;              // height of one line of text
     private int numVisibleChars;                 // number of chars (ie width) that can fit in one line of current window
     private int numVisibleLines;                 // number of lines (ie height) that can fit in current window
-    private int renderCursor;                    // next onDraw() needs to adjust scrolling to make this cursor visible
-    private int scrolledCharsLeft;               // number of lines we are shifted left
-    private int scrolledLinesDown;               // number of lines we are scrolled down
     private int selectBeg;                       // select range beginning offset in theWholeText
     private int selectCursor;                    // offset in theWholeText where select cursor is
     private int selectEnd;                       // select range end offset in theWholeText
     private int textColor;                       // current foreground color for text
-    private int theWholeUsed;                    // amount in theWholeText that is occupied
     private int[] visibleLineBegs = new int[1];  // offsets of beginning of visible lines in theWholeText
     private int[] visibleLineEnds = new int[1];  // offsets of end of visible lines in theWholeText
     private MySession session;                   // what session we are part of
     private Paint cursorPaint;                   // used to paint cursor
     private Paint selectPaint;                   // background paint for selected text
     private Paint showeolPaint;                  // paints the EOL character
+    private ScreenTextBuffer screenTextBuffer;   // where we get shell screen data from
     private SshClient sshclient;                 // what activity we are part of
     private STPanning panning;                   // used for scrolling based on mouse movements
 
-    public boolean isFrozen () { return frozen; }
-
-    public ScreenTextView (MySession ms)
+    public ScreenTextView (MySession ms, ScreenTextBuffer stb)
     {
         super (ms.getSshClient ());
         session   = ms;
         sshclient = ms.getSshClient ();
+        screenTextBuffer = stb;
 
         setTypeface (Typeface.MONOSPACE);
         setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
@@ -128,6 +121,16 @@ public class ScreenTextView extends EditText
 
         showeolPaint = new Paint ();
         showeolPaint.setTypeface (Typeface.MONOSPACE);
+
+        screenTextBuffer.SetChangeNotification (new Runnable () {
+            @Override
+            public void run ()
+            {
+                if (!invalTextImmPend.getAndSet (true)) {
+                    session.getScreendatahandler ().sendEmptyMessage (ScreenDataHandler.INVALTEXT);
+                }
+            }
+        });
     }
 
     /**
@@ -137,40 +140,14 @@ public class ScreenTextView extends EditText
     {
         Settings settings = sshclient.getSettings ();
 
-        // get new size desired, rounded up to power-of-two
-        int newtws = settings.max_chars.GetValue ();
-        while ((newtws & -newtws) != newtws) {
-            newtws += newtws & -newtws;
-        }
-
-        // realloc the array if rounded-up size different
-        if (newtws != tws) {
-            char[] newtwt = new char[newtws];
-
-            int newtwm = newtws - 1;                   // bitmask for wrapping indices
-            int newtwu = 0;                            // no array elements used yet
-            int newtwb = 0;                            // start of used elements is beginning of array
-            for (int i = 0; i < theWholeUsed; i ++) {  // step through each used char in old array
-                newtwt[(newtwb+newtwu)&newtwm] = twt[(twb+i)&twm];
-                if (newtwu < newtws) newtwu ++;        // if not yet full, it has one more char now
-                else newtwb = (newtwb + 1) & newtwm;   // otherwise, old char on front was overwritten
-            }
-
-            insertpoint += newtwu - theWholeUsed;
-            if (insertpoint < 0) insertpoint = 0;
-
-            twt = newtwt;
-            twb = newtwb;
-            twm = newtwm;
-            tws = newtws;
-            theWholeUsed = newtwu;
-        }
+        // set up possibly new size
+        screenTextBuffer.SetRingSize (settings.max_chars.GetValue ());
 
         // now that array is in place (in case of redraw triggers herein), set up everything else
         int colors  = settings.txt_colors.GetValue ();
         int fgcolor = settings.fgcolors[colors];
         int bgcolor = settings.bgcolors[colors];
-        textColor = frozen ? bgcolor : fgcolor;
+        textColor   = frozen ? bgcolor : fgcolor;
         setBackgroundColor (frozen ? fgcolor : bgcolor);
         setTextSize (settings.font_size.GetValue ());
     }
@@ -194,10 +171,13 @@ public class ScreenTextView extends EditText
      */
     public void FreezeThaw ()
     {
-        frozen = !frozen && (charWidthInPixels > 0) && (lineHeightInPixels > 0);
-        if (frozen) {
+        if (!frozen && (charWidthInPixels > 0) && (lineHeightInPixels > 0)) {
 
-            // freeze, put colors in reverse
+            // freeze, halt receiver thread
+            frozen = true;
+            screenTextBuffer.SetFrozen (true);
+
+            // put colors in reverse
             Settings settings = sshclient.getSettings ();
             int colors = settings.txt_colors.GetValue ();
             textColor = settings.bgcolors[colors];
@@ -205,7 +185,7 @@ public class ScreenTextView extends EditText
 
             // reset select range
             selectActive = false;
-            selectBeg = selectCursor = selectEnd = insertpoint;
+            selectBeg = selectCursor = selectEnd = screenTextBuffer.insertpoint;
 
             // get stuff redrawn in reversed colors
             invalidate ();
@@ -216,7 +196,11 @@ public class ScreenTextView extends EditText
 
     public void ThawIt ()
     {
-        // thaw, reset any active select range
+        // thaw, release receiver thread
+        frozen = false;
+        screenTextBuffer.SetFrozen (false);
+
+        // reset any active select range
         selectActive = false;
         selectBeg = selectEnd = 0;
 
@@ -226,124 +210,15 @@ public class ScreenTextView extends EditText
         textColor = settings.fgcolors[colors];
         setBackgroundColor (settings.bgcolors[colors]);
 
-        // tell receiver thread to resume receiving from host
-        synchronized (session.getScreendatathread ()) {
-            session.getScreendatathread ().notifyAll ();
-        }
-
         // get stuff redrawn in reversed colors
         invalidate ();
     }
 
-    /**
-     * Receive thread calls this to block while we are frozen.
-     */
-    public void Squelched () throws InterruptedException
-    {
-        synchronized (session.getScreendatathread ()) {
-            while (frozen) {
-                session.getScreendatathread ().wait ();
-            }
-        }
-    }
+    public boolean IsFrozen () { return frozen; }
 
     /******************************\
      *  Incoming data processing  *
     \******************************/
-
-    /**
-     * Process incoming data from host.
-     */
-    public void Incoming (char[] buf, int beg, int end)
-    {
-        // look for control characters in the given text.
-        // insert all the other text by appending to existing text.
-        // the resulting theWholeText should only contain printables
-        // and newline characters.
-        for (int i = beg; i < end; i ++) {
-            char ch = buf[i];
-            if ((int)ch < 32) {
-
-                // process the control character
-                switch ((int)ch) {
-
-                    // bell
-                    case 7: {
-                        sshclient.MakeBeepSound ();
-                        continue;
-                    }
-
-                    // backspace: back up the insertion point one character,
-                    // but not before beginning of current line
-                    // has to work as part of BS/' '/BS sequence to delete last char on line
-                    case 8: {
-                        if (insertpoint > 0) {
-                            ch = twt[(twb+insertpoint-1)&twm];
-                            if (ch != '\n') {
-                                if ((ch == ' ') && (insertpoint == theWholeUsed)) {
-                                    -- theWholeUsed;
-                                }
-                                -- insertpoint;
-                            }
-                        }
-                        continue;
-                    }
-
-                    // tab: space to next 8-character position in line
-                    case 9: {
-                        int k;
-                        for (k = insertpoint; k > 0; -- k) {
-                            if (twt[(twb+k-1)&twm] == '\n') break;
-                        }
-                        k = (insertpoint - k) % 8;
-                        Incoming (eightspaces, 0, 8 - k);
-                        continue;
-                    }
-
-                    // newline (linefeed): advance insertion point to end of text and append newline
-                    // also reset horizontal scrolling in case a prompt is incoming next
-                    // has to work as part of CR/LF sequence
-                    case 10: {
-                        insertpoint = theWholeUsed;
-                        scrolledCharsLeft = 0;
-                        break;
-                    }
-
-                    // carriage return: backspace to just after most recent newline
-                    // has to work as part of CR/LF sequence
-                    case 13: {
-                        while (insertpoint > 0) {
-                            ch = twt[(twb+insertpoint-1)&twm];
-                            if (ch == '\n') break;
-                            -- insertpoint;
-                        }
-                        scrolledCharsLeft = 0;
-                        continue;
-                    }
-
-                    // who knows - ignore all other control characters
-                    default: {
-                        Log.d (TAG, "ignoring incoming " + (int) ch);
-                        continue;
-                    }
-                }
-            }
-
-            twt[(twb+insertpoint)&twm] = ch;    // store char at insert point
-            if (insertpoint < theWholeUsed) {   // if we are overwriting stuff on the existing line,
-                insertpoint ++;                 //     (ie it has been BS/CR'd), just inc index
-            } else if (theWholeUsed < tws) {    // append, if array hasn't been filled yet,
-                theWholeUsed = ++ insertpoint;  //     extend it by one character
-            } else {                            // otherwise, we just overwrote the oldest char in ring,
-                twb = (twb + 1) & twm;          //     increment index base
-            }
-        }
-
-        // update on-screen display from theWholeText
-        needToRender = true;
-        renderCursor = insertpoint;
-        invalidate ();
-    }
 
     /**
      * Clear the screen.
@@ -351,13 +226,20 @@ public class ScreenTextView extends EditText
     public void Clear ()
     {
         if (!frozen) {
-            theWholeUsed      = 0;
-            insertpoint       = 0;
-            scrolledCharsLeft = 0;
-            scrolledLinesDown = 0;
-            needToRender      = true;
-            invalidate ();
+            screenTextBuffer.ClearScreen ();
         }
+    }
+
+    /**
+     * Some text was just received, so tell Android to call onDraw().
+     * Or maybe we just want to flip the cursor.
+     */
+    public void InvalTextReceived ()
+    {
+        if (!invalTextImmPend.getAndSet (false)) {
+            invalTextDelPend = false;
+        }
+        invalidate ();
     }
 
     /**
@@ -366,129 +248,132 @@ public class ScreenTextView extends EditText
     @Override
     protected void onDraw (Canvas canvas)
     {
-        if (needToRender) {
-            RenderText ();
-            needToRender = false;
-            renderCursor = -1;
-        }
-
-        Paint paint = getPaint ();
-        paint.setColor (textColor);
-
-        int underhang  = (int)Math.ceil (paint.descent ());
-        int lineheight = getLineHeight ();
-        int top  = getPaddingTop ();
-        int left = getPaddingLeft ();
-
-        int selbeg = (selectBeg <= selectEnd) ? selectBeg : selectEnd;
-        int selend = (selectEnd >= selectBeg) ? selectEnd : selectBeg;
-
-        int cursor = frozen ? selectCursor : insertpoint;
-
         long uptimemillis = SystemClock.uptimeMillis ();
 
-        for (int i = 0; i < numVisibleLines; i ++) {
-
-            // y co-ordinate at bottom of text
-            top += lineheight;
-
-            // get offsets in theWholeText to be drawn for the line
-            int linebeg = visibleLineBegs[i];
-            int lineend = visibleLineEnds[i];
-            if (lineend > linebeg) {
-
-                // see if it intersects the current select range
-                if (selectActive && (linebeg < selend) && (lineend > selbeg)) {
-
-                    // if so, highlight the selected characters by doing a gray background
-                    int intersectbeg = (linebeg > selbeg) ? linebeg : selbeg;
-                    int intersectend = (lineend < selend) ? lineend : selend;
-                    canvas.drawRect (
-                            left + charWidthInPixels * (intersectbeg - linebeg),
-                            top + underhang - lineheight,
-                            left + charWidthInPixels * (intersectend - linebeg),
-                            top + underhang,
-                            selectPaint
-                    );
-                }
-
-                // maybe there is a newline char on the end for show_eols mode
-                if (twt[(lineend-1+twb)&twm] == '\n') {
-                    -- lineend;
-
-                    showeolPaint.setColor    (textColor);
-                    showeolPaint.setTextSize (savedTextSize);
-                    float fudge = paint.measureText ("M", 0, 1) / showeolPaint.measureText ("M", 0, 1);
-                    showeolPaint.setTextSize (savedTextSize * fudge / 2);
-
-                    int x = left + charWidthInPixels * (lineend - linebeg);
-                    int y = top - lineHeightInPixels / 2;
-                    canvas.drawText ("N", 0, 1, x, y, showeolPaint);
-
-                    x += charWidthInPixels  / 2;
-                    y += lineHeightInPixels / 2;
-                    canvas.drawText ("L", 0, 1, x, y, showeolPaint);
-                }
-
-                // now drawr the printable text
-                if (lineend > linebeg) {
-                    int lbwrapped  = (twb + linebeg) & twm;
-                    int lewrapped  = (twb + lineend - 1) & twm;
-                    if (lewrapped >= lbwrapped) {
-                        canvas.drawText (twt, lbwrapped, lineend - linebeg, left, top, paint);
-                    } else {
-                        int onend = tws - lbwrapped;
-                        canvas.drawText (twt, lbwrapped, onend, left, top, paint);
-                        canvas.drawText (
-                                twt,
-                                0,
-                                ++ lewrapped,
-                                left + charWidthInPixels * onend,
-                                top,
-                                paint
-                        );
-                    }
-                }
+        synchronized (screenTextBuffer) {
+            if (screenTextBuffer.needToRender) {
+                RenderText ();
+                screenTextBuffer.needToRender = false;
+                screenTextBuffer.renderCursor = -1;
             }
 
-            // maybe drawr a cursor
-            if ((cursor >= linebeg) &&                                                   // has to be on or after first char on line
-                    (cursor <= lineend) &&                                               // has to be on or before last char on line
-                    // ...can also be right after last char on line
-                    (cursor < linebeg + numVisibleChars) &&                              // can't be off visible width of screen
-                    (uptimemillis % (2 * CURSOR_HALFCYCLE_MS) < CURSOR_HALFCYCLE_MS)) {  // make it blink
-                cursorPaint.setColor (textColor);
-                int x = (cursor - linebeg) * charWidthInPixels + left;
-                switch (sshclient.getSettings ().cursor_style.GetValue ()) {
-                    case 0: {  // line
-                        canvas.drawLine (x - 2, top + underhang - lineheight, x - 2, top + underhang, cursorPaint);
-                        break;
+            Paint paint = getPaint ();
+            paint.setColor (textColor);
+
+            final char[] twt = screenTextBuffer.twt;
+            final int    twb = screenTextBuffer.twb;
+            final int    twm = screenTextBuffer.twm;
+
+            int underhang  = (int)Math.ceil (paint.descent ());
+            int lineheight = getLineHeight ();
+            int top  = getPaddingTop ();
+            int left = getPaddingLeft ();
+
+            int selbeg = (selectBeg <= selectEnd) ? selectBeg : selectEnd;
+            int selend = (selectEnd >= selectBeg) ? selectEnd : selectBeg;
+
+            int cursor = frozen ? selectCursor : screenTextBuffer.insertpoint;
+
+            for (int i = 0; i < numVisibleLines; i ++) {
+
+                // y co-ordinate at bottom of text
+                top += lineheight;
+
+                // get offsets in theWholeText to be drawn for the line
+                int linebeg = visibleLineBegs[i];
+                int lineend = visibleLineEnds[i];
+                if (lineend > linebeg) {
+
+                    // see if it intersects the current select range
+                    if (selectActive && (linebeg < selend) && (lineend > selbeg)) {
+
+                        // if so, highlight the selected characters by doing a gray background
+                        int intersectbeg = (linebeg > selbeg) ? linebeg : selbeg;
+                        int intersectend = (lineend < selend) ? lineend : selend;
+                        canvas.drawRect (
+                                left + charWidthInPixels * (intersectbeg - linebeg),
+                                top + underhang - lineheight,
+                                left + charWidthInPixels * (intersectend - linebeg),
+                                top + underhang,
+                                selectPaint
+                        );
                     }
-                    case 1: {  // box
-                        cursorPaint.setStyle (Paint.Style.STROKE);
-                        canvas.drawRect (x - 2, top + underhang - lineheight, x + charWidthInPixels, top + underhang, cursorPaint);
-                        break;
+
+                    // maybe there is a newline char on the end for show_eols mode
+                    if (twt[(lineend-1+twb)&twm] == '\n') {
+                        -- lineend;
+
+                        showeolPaint.setColor    (textColor);
+                        showeolPaint.setTextSize (savedTextSize);
+                        float fudge = paint.measureText ("M", 0, 1) / showeolPaint.measureText ("M", 0, 1);
+                        showeolPaint.setTextSize (savedTextSize * fudge / 2);
+
+                        int x = left + charWidthInPixels * (lineend - linebeg);
+                        int y = top - lineHeightInPixels / 2;
+                        canvas.drawText ("N", 0, 1, x, y, showeolPaint);
+
+                        x += charWidthInPixels  / 2;
+                        y += lineHeightInPixels / 2;
+                        canvas.drawText ("L", 0, 1, x, y, showeolPaint);
                     }
-                    case 2: {  // block
-                        cursorPaint.setStyle (Paint.Style.FILL);
-                        canvas.drawRect (x - 2, top + underhang - lineheight, x + charWidthInPixels, top + underhang, cursorPaint);
-                        break;
+
+                    // now drawr the printable text
+                    if (lineend > linebeg) {
+                        int lbwrapped  = (twb + linebeg) & twm;
+                        int lewrapped  = (twb + lineend - 1) & twm;
+                        if (lewrapped >= lbwrapped) {
+                            canvas.drawText (twt, lbwrapped, lineend - linebeg, left, top, paint);
+                        } else {
+                            int onend = screenTextBuffer.tws - lbwrapped;
+                            canvas.drawText (twt, lbwrapped, onend, left, top, paint);
+                            canvas.drawText (
+                                    twt,
+                                    0,
+                                    ++ lewrapped,
+                                    left + charWidthInPixels * onend,
+                                    top,
+                                    paint
+                            );
+                        }
+                    }
+                }
+
+                // maybe drawr a cursor
+                if ((cursor >= linebeg) &&                                                   // has to be on or after first char on line
+                        (cursor <= lineend) &&                                               // has to be on or before last char on line
+                        // ...can also be right after last char on line
+                        (cursor < linebeg + numVisibleChars) &&                              // can't be off visible width of screen
+                        (uptimemillis % (2 * CURSOR_HALFCYCLE_MS) < CURSOR_HALFCYCLE_MS)) {  // make it blink
+                    cursorPaint.setColor (textColor);
+                    int x = (cursor - linebeg) * charWidthInPixels + left;
+                    switch (sshclient.getSettings ().cursor_style.GetValue ()) {
+                        case 0: {  // line
+                            canvas.drawLine (x - 2, top + underhang - lineheight, x - 2, top + underhang, cursorPaint);
+                            break;
+                        }
+                        case 1: {  // box
+                            cursorPaint.setStyle (Paint.Style.STROKE);
+                            canvas.drawRect (x - 2, top + underhang - lineheight, x + charWidthInPixels, top + underhang, cursorPaint);
+                            break;
+                        }
+                        case 2: {  // block
+                            cursorPaint.setStyle (Paint.Style.FILL);
+                            canvas.drawRect (x - 2, top + underhang - lineheight, x + charWidthInPixels, top + underhang, cursorPaint);
+                            break;
+                        }
                     }
                 }
             }
         }
 
         // maybe call back in a a little while to flip cursor on or off
-        if (!cursorFlag) {
-            cursorFlag = true;
-            session.getScreendatahandler ().sendEmptyMessageDelayed (ScreenDataHandler.INVALTEXT, CURSOR_HALFCYCLE_MS - (uptimemillis % CURSOR_HALFCYCLE_MS));
+        if (!invalTextDelPend) {
+            invalTextDelPend = true;
+            session.getScreendatahandler ().sendEmptyMessageDelayed (
+                    ScreenDataHandler.INVALTEXT,
+                    CURSOR_HALFCYCLE_MS - (uptimemillis % CURSOR_HALFCYCLE_MS)
+            );
         }
-    }
-
-    public void InvalTextReceived ()
-    {
-        cursorFlag = false;
-        invalidate ();
     }
 
     /**
@@ -530,13 +415,15 @@ public class ScreenTextView extends EditText
                 (lastsentptychrrows != numVisibleLines) ||
                 (lastsentptypixcols != usableWidth) ||
                 (lastsentptypixrows != usableHeight)) {
-            if ((session.getCurrentconnection () != null) && !frozen) {
+            ChannelShell shellchan = session.getShellChannel ();
+            if ((shellchan != null) && !frozen) {
                 lastsentptychrcols = numVisibleChars;
                 lastsentptychrrows = numVisibleLines;
                 lastsentptypixcols = usableWidth;
                 lastsentptypixrows = usableHeight;
                 Log.d (TAG, "setPtySize ("  + lastsentptychrcols + ", " + lastsentptychrrows + ", " + lastsentptypixcols + ", " + lastsentptypixrows + ")");
-                session.getCurrentconnection ().setPtySize (lastsentptychrcols, lastsentptychrrows, lastsentptypixcols, lastsentptypixrows);
+                // doesn't throw anything, just discards any errors
+                shellchan.setPtySize (lastsentptychrcols, lastsentptychrrows, lastsentptypixcols, lastsentptypixrows);
             }
         }
 
@@ -547,6 +434,13 @@ public class ScreenTextView extends EditText
             visibleLineBegs = new int[numVisibleLines];
             visibleLineEnds = new int[numVisibleLines];
         }
+
+        // get local copies of this stuff
+        final char[] twt = screenTextBuffer.twt;  // theWholeText ring buffer of shell text from the host
+        final int    twb = screenTextBuffer.twb;  // the base of all our indices
+        final int    twm = screenTextBuffer.twm;  // mask for twt indices (twt.length()-1)
+        final int    twu = screenTextBuffer.theWholeUsed;
+        final int renderCursor = screenTextBuffer.renderCursor;
 
         // do initial mapping of text lines to visible lines.
         // vertical scrolling may be adjusted to make cursor line visible.
@@ -559,9 +453,9 @@ public class ScreenTextView extends EditText
         boolean showeols   = sshclient.getSettings ().show_eols.GetValue ();
         boolean wraplines  = sshclient.getSettings ().wrap_lines.GetValue ();
         int cursorvisline  = -1;                  // don't know what line cursor is in yet
-        int nextlineend    = theWholeUsed;        // just past end of last line to be evaluated
+        int nextlineend    = twu;                 // just past end of last line to be evaluated
         int precednewline  = -1;                  // don't know where newline that precedes nextlineend is
-        int vislinenum     = numVisibleLines + scrolledLinesDown;
+        int vislinenum     = numVisibleLines + screenTextBuffer.scrolledLinesDown;
 
         //  nextlineend > 0 : there is more text to look at
         //  vislinenum  > 0 : there are more visible lines to fill in
@@ -584,7 +478,7 @@ public class ScreenTextView extends EditText
                     }
 
                     // maybe extend this line to include newline on the end
-                    if (showeols && (vislineend < theWholeUsed)) {
+                    if (showeols && (vislineend < twu)) {
                         vislineend ++;
                     }
                 }
@@ -624,7 +518,7 @@ public class ScreenTextView extends EditText
                 vislinebeg = nextlineend + 1;
 
                 // maybe extend line to include the newline as a character on the end
-                if (showeols && (vislineend < theWholeUsed)) {
+                if (showeols && (vislineend < twu)) {
                     vislineend ++;
                 }
             }
@@ -634,7 +528,7 @@ public class ScreenTextView extends EditText
 
             // maybe we need to scroll text up to see cursor line
             if (cursorinthisline && (vislinenum > numVisibleLines)) {
-                scrolledLinesDown -= vislinenum - numVisibleLines;
+                screenTextBuffer.scrolledLinesDown -= vislinenum - numVisibleLines;
                 vislinenum = numVisibleLines;
             }
 
@@ -661,7 +555,7 @@ public class ScreenTextView extends EditText
 
             // text needed to be scrolled down some more to see line with cursor
             // eg, if vislinenum == -1, text needed to be scrolled down one more line
-            scrolledLinesDown -= vislinenum;
+            screenTextBuffer.scrolledLinesDown -= vislinenum;
 
             // find index in arrays where top line to be displayed is at
             // eg, if vislinenum == -1, top line is at index numVisibleLines - 1
@@ -688,9 +582,9 @@ public class ScreenTextView extends EditText
 
             // but it is possible we have blank lines because text is scrolled down,
             // in which case we get rid of that much scrolling down and try again.
-            if (scrolledLinesDown > 0) {
-                scrolledLinesDown -= vislinenum;
-                if (scrolledLinesDown < 0) scrolledLinesDown = 0;
+            if (screenTextBuffer.scrolledLinesDown > 0) {
+                screenTextBuffer.scrolledLinesDown -= vislinenum;
+                if (screenTextBuffer.scrolledLinesDown < 0) screenTextBuffer.scrolledLinesDown = 0;
                 RenderText ();
                 return;
             }
@@ -707,7 +601,7 @@ public class ScreenTextView extends EditText
 
             // there never is any horizontal scrolling if we are in wrap mode
             // and line length limits have already been applied
-            scrolledCharsLeft = 0;
+            screenTextBuffer.scrolledCharsLeft = 0;
         } else {
 
             // maybe adjust horizontal scrolling to make cursor visible
@@ -721,14 +615,14 @@ public class ScreenTextView extends EditText
 
                 // if cursor is scrolled off to the left, scroll text right just enough
                 // have one char to the left of cursor visible too if possible
-                if (scrolledCharsLeft >= cursorinline) {
-                    scrolledCharsLeft = cursorinline;
-                    if (scrolledCharsLeft > 0) -- scrolledCharsLeft;
+                if (screenTextBuffer.scrolledCharsLeft >= cursorinline) {
+                    screenTextBuffer.scrolledCharsLeft = cursorinline;
+                    if (screenTextBuffer.scrolledCharsLeft > 0) -- screenTextBuffer.scrolledCharsLeft;
                 }
 
                 // if cursor is scrolled off to the right, scroll text left just enough
-                if (scrolledCharsLeft <= cursorinline - numVisibleChars) {
-                    scrolledCharsLeft = cursorinline - numVisibleChars + 1;
+                if (screenTextBuffer.scrolledCharsLeft <= cursorinline - numVisibleChars) {
+                    screenTextBuffer.scrolledCharsLeft = cursorinline - numVisibleChars + 1;
                 }
             }
 
@@ -743,8 +637,8 @@ public class ScreenTextView extends EditText
                 }
 
                 // if the end is scrolled off to the left, scroll text right just enough
-                if ((longestlen > 0) && (scrolledCharsLeft >= longestlen)) {
-                    scrolledCharsLeft = longestlen - 1;
+                if ((longestlen > 0) && (screenTextBuffer.scrolledCharsLeft >= longestlen)) {
+                    screenTextBuffer.scrolledCharsLeft = longestlen - 1;
                 }
             }
 
@@ -756,7 +650,7 @@ public class ScreenTextView extends EditText
                 int vislineend = visibleLineEnds[i];
 
                 // maybe text is scrolled over some
-                vislinebeg += scrolledCharsLeft;
+                vislinebeg += screenTextBuffer.scrolledCharsLeft;
 
                 // never display more than visible width
                 if (vislineend > vislinebeg + numVisibleChars) {
@@ -780,7 +674,7 @@ public class ScreenTextView extends EditText
         savedTextSize      = size;
         charWidthInPixels  = 0;
         lineHeightInPixels = 0;
-        needToRender       = true;
+        screenTextBuffer.needToRender = true;
         invalidate ();
     }
 
@@ -795,7 +689,7 @@ public class ScreenTextView extends EditText
         if (changed) {
             charWidthInPixels  = 0;
             lineHeightInPixels = 0;
-            needToRender       = true;
+            screenTextBuffer.needToRender = true;
             invalidate ();
         }
     }
@@ -806,7 +700,8 @@ public class ScreenTextView extends EditText
     @Override
     public boolean onTouchEvent (MotionEvent me)
     {
-        return panning.OnTouchEvent (me);
+        panning.OnTouchEvent (me);
+        return super.onTouchEvent (me);
     }
 
     public void PanCoastReceived ()
@@ -839,8 +734,8 @@ public class ScreenTextView extends EditText
             // remember where the user put his/her finger down originally
             startx = x;
             starty = y;
-            startscrolledcharsleft = scrolledCharsLeft;
-            startscrolledlinesdown = scrolledLinesDown;
+            startscrolledcharsleft = screenTextBuffer.scrolledCharsLeft;
+            startscrolledlinesdown = screenTextBuffer.scrolledLinesDown;
 
             // remember where and when for coasting purposes
             mousedownat_t = 0;
@@ -909,8 +804,8 @@ public class ScreenTextView extends EditText
                 int deltacharsleft = (int)(startx - x) / charWidthInPixels;
                 int scl = startscrolledcharsleft + deltacharsleft;
                 if (scl < 0) scl = 0;
-                if (scrolledCharsLeft != scl) {
-                    scrolledCharsLeft = scl;
+                if (screenTextBuffer.scrolledCharsLeft != scl) {
+                    screenTextBuffer.scrolledCharsLeft = scl;
                     render = true;
                 }
             }
@@ -918,14 +813,14 @@ public class ScreenTextView extends EditText
                 int deltalinesdown = (int)(y - starty) / lineHeightInPixels;
                 int sld = startscrolledlinesdown + deltalinesdown;
                 if (sld < 0) sld = 0;
-                if (scrolledLinesDown != sld) {
-                    scrolledLinesDown = sld;
+                if (screenTextBuffer.scrolledLinesDown != sld) {
+                    screenTextBuffer.scrolledLinesDown = sld;
                     render = true;
                 }
             }
             if (render) {
-                needToRender = true;
-                invalidate ();;
+                screenTextBuffer.needToRender = true;
+                invalidate ();
             }
         }
 
@@ -1028,11 +923,11 @@ public class ScreenTextView extends EditText
             }
             case 'I':
             case 'i': {  // up
-                int lineno = TextOffsetToLineNumber (selectCursor);
-                int charno = TextOffsetToCharNumber (selectCursor);
-                int newlen = TextLineLength (-- lineno);
+                int lineno = screenTextBuffer.TextOffsetToLineNumber (selectCursor);
+                int charno = screenTextBuffer.TextOffsetToCharNumber (selectCursor);
+                int newlen = screenTextBuffer.TextLineLength (--lineno);
                 if (charno > newlen) charno = newlen;
-                selectCursor = LineCharNumberToTextOffset (lineno, charno);
+                selectCursor = screenTextBuffer.LineCharNumberToTextOffset (lineno, charno);
                 break;
             }
             case 'J':
@@ -1042,16 +937,16 @@ public class ScreenTextView extends EditText
             }
             case 'K':
             case 'k': {  // down
-                int lineno = TextOffsetToLineNumber (selectCursor);
-                int charno = TextOffsetToCharNumber (selectCursor);
-                int newlen = TextLineLength (++ lineno);
+                int lineno = screenTextBuffer.TextOffsetToLineNumber (selectCursor);
+                int charno = screenTextBuffer.TextOffsetToCharNumber (selectCursor);
+                int newlen = screenTextBuffer.TextLineLength (++lineno);
                 if (charno > newlen) charno = newlen;
-                selectCursor = LineCharNumberToTextOffset (lineno, charno);
+                selectCursor = screenTextBuffer.LineCharNumberToTextOffset (lineno, charno);
                 break;
             }
             case 'L':
             case 'l': {  // right
-                if (selectCursor < theWholeUsed) selectCursor ++;
+                if (selectCursor < screenTextBuffer.theWholeUsed) selectCursor ++;
                 break;
             }
             case 'R':
@@ -1068,8 +963,8 @@ public class ScreenTextView extends EditText
         }
         if (selectActive) selectEnd = selectCursor;
 
-        needToRender = true;
-        renderCursor = selectCursor;
+        screenTextBuffer.needToRender = true;
+        screenTextBuffer.renderCursor = selectCursor;
         invalidate ();
     }
 
@@ -1079,6 +974,9 @@ public class ScreenTextView extends EditText
     private void CopyToClipboard ()
     {
         // get substring that was selected
+        final char[] twt = screenTextBuffer.twt;
+        final int    twb = screenTextBuffer.twb;
+        final int    twm = screenTextBuffer.twm;
         int beg = (selectBeg <= selectEnd) ? selectBeg : selectEnd;
         int end = (selectEnd >= selectBeg) ? selectEnd : selectBeg;
         int len = end - beg;
@@ -1086,7 +984,7 @@ public class ScreenTextView extends EditText
         end = (twb + end - 1) & twm;
         final String subseq = (end >= beg) ?
                 new String (twt, beg, len) :
-                new String (twt, beg, tws - beg) + new String (twt, 0, ++ end);
+                new String (twt, beg, twm + 1 - beg) + new String (twt, 0, ++ end);
 
         // start making an alert box
         AlertDialog.Builder ab = new AlertDialog.Builder (getContext ());
@@ -1123,7 +1021,7 @@ public class ScreenTextView extends EditText
         });
 
         // Cancel button just leaves everything as is
-        ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
 
         // display the dialog box
         ab.show ();
@@ -1141,48 +1039,5 @@ public class ScreenTextView extends EditText
             else if (c == '\\') msg.append ("\\\\");
             else msg.append (c);
         }
-    }
-
-    private int TextOffsetToLineNumber (int offs)
-    {
-        int lineno = 0;
-        for (int i = 0; i < offs; i ++) {
-            if (twt[(twb+i)&twm] == '\n') lineno ++;
-        }
-        return lineno;
-    }
-    private int TextOffsetToCharNumber (int offs)
-    {
-        int lastbol = 0;
-        for (int i = 0; i < offs; i ++) {
-            if (twt[(twb+i)&twm] == '\n') lastbol = i + 1;
-        }
-        return offs - lastbol;
-    }
-    private int TextLineLength (int lineno)
-    {
-        if (lineno < 0) return 0;
-        int i, j;
-        for (i = 0; (i < theWholeUsed) && (lineno > 0); i ++) {
-            if (twt[(twb+i)&twm] == '\n') -- lineno;
-        }
-        if (lineno > 0) return 0;
-        for (j = i; j < theWholeUsed; j ++) {
-            if (twt[(twb+j)&twm] == '\n') break;
-        }
-        return j - i;
-    }
-    private int LineCharNumberToTextOffset (int lineno, int charno)
-    {
-        if (lineno < 0) return 0;
-        int i;
-        for (i = 0; (i < theWholeUsed) && (lineno > 0); i ++) {
-            if (twt[(twb+i)&twm] == '\n') -- lineno;
-        }
-        if (lineno > 0) return theWholeUsed;
-        i += charno;
-        if (i < 0) return 0;
-        if (i > theWholeUsed) return theWholeUsed;
-        return i;
     }
 }

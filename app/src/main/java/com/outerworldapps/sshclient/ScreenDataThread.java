@@ -1,6 +1,29 @@
 /**
- * This thread connects to the remote host then copies characters from the
- * remote host and queues them to be displayed in the scrolled text window.
+ * This thread copies characters from the remote host and
+ * queues them to be displayed in the scrolled text window.
+ * It lives on as part of JSessionService even when the GUI
+ * is detached, so as to keep the connection alive and pass
+ * on data to ScreenTextBuffer.
+ *
+ * JSessionService holds these in memory.
+ *
+ * These in turn hold the jsession (TCP connection) in memory.
+ *
+ * These also hold the corresponding ScreenTextBuffer in memory
+ * so there is someplace to put incoming host data.
+ *
+ * When the GUI is detached, it is detached from ScreenTextBuffer,
+ * so it should be garbage collected.
+ *
+ * THe only other thing these should point to are the detstate
+ * hash maps which just have primitives in them describing the
+ * GUI state (high level) so it can be restored.
+ *
+ * Note that this thread doesn't actually have to be running to
+ * fulfill its function of keeping the jsession alive, in the
+ * case where it is just being used for sftp or tunnelling.  It
+ * will be running only if the connection is being used for shell
+ * access.
  */
 
 //    Copyright (C) 2014, Mike Rieker, Beverly, MA USA
@@ -29,176 +52,193 @@ package com.outerworldapps.sshclient;
 import android.util.Log;
 
 import com.jcraft.jsch.ChannelShell;
-import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.Session;
 
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.util.TreeMap;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
 
 public class ScreenDataThread extends Thread {
     public static final String TAG = "SshClient";
 
-    public static final int CONN_TIMEOUT_MS = 30000;
-
-    public volatile boolean die;               // tells the thread to exit
-    public volatile boolean eof;               // indicates the thread has exited
-    public final char[] buf = new char[4096];  // char buffer to pass to screen
-    public boolean guiownsit;                  // false: this thread owns buf/seq
-                                               //  true: gui thread owns buf/seq
-
-    private MySession mysession;               // session this class is part of
-    private SshClient sshclient;               // activity this class is part of
-    private String keypairident;               // keypair used to connect (or null if none)
-
-    public String getKeypairident () { return keypairident; }
-
-    public ScreenDataThread (MySession ms, SshClient sc)
-    {
-        mysession = ms;
-        sshclient = sc;
+    //TODO move this to JSessionService
+    public interface GUIDetach {
+        public void guiDetach ();
     }
 
-    @Override
-    public void run ()
+    public ChannelShell channel;
+    public OutputStreamWriter output;
+    public ScreenTextBuffer screenTextBuffer;
+    public Session jsession;
+
+    private boolean enabled;
+    private boolean started;
+    private volatile boolean terminated;
+
+    // Not used by ScreenDataThread itself but needed
+    // to re-attach when restarting.
+    // Only holds primitives like ints and strings (or
+    // other hashmaps of ints and strings) so when the
+    // GUI detaches, the GUI components can be garbage
+    // collected.  Can also hold objects that implement
+    // GUIDetach as it will be called on detach so they
+    // can remove any GUI references at that time.
+    //TODO move this to JSessionService
+    public HashMap<String,Object> detstate = new HashMap<String,Object> ();
+
+    /**
+     * If not already in shell mode, start it going.
+     * Called in GUI thread.
+     */
+    public void startshellmode ()
     {
-        ChannelShell connection = null;
-        InputStreamReader input;
-        ScreenDataHandler screendatahandler = mysession.getScreendatahandler ();
-        OutputStreamWriter output = null;
-
-        /*
-         * Connecting...
-         */
-        mysession.ScreenMsg ("\nconnecting to " + mysession.userhostport + "\n");
-        try {
-            JSch jsch = new JSch ();
-            jsch.setHostKeyRepository (sshclient.getMyhostkeyrepo ());
-            mysession.ScreenMsg ("...selecting keypair\n");
-            SavedLogin savedlogin = sshclient.getSavedlogins ().get (mysession.userhostport);
-            keypairident = null;
-            if ((savedlogin == null) || (savedlogin.getKeypair () != null)) {
-                keypairident = SelectKeypair ((savedlogin == null) ? null : savedlogin.getKeypair ());
-            }
-            if (keypairident != null) {
-                mysession.ScreenMsg ("...using keypair " + keypairident + "\n");
-                byte[] prvkey = sshclient.ReadEncryptedFileBytes (sshclient.getPrivatekeyfilename (keypairident));
-                byte[] pubkey = sshclient.ReadEncryptedFileBytes (sshclient.getPublickeyfilename (keypairident));
-                jsch.addIdentity (keypairident, prvkey, pubkey, null);
-            } else {
-                mysession.ScreenMsg ("...not using a keypair\n");
-            }
-            mysession.ScreenMsg ("...setting up session\n");
-            Session jsession = jsch.getSession (mysession.username, mysession.hostname, mysession.portnumber);
-            JschUserInfo jschuserinfo = mysession.getJschuserinfo ();
-            jschuserinfo.dbpassword   = null;       // no password is available from database
-            jschuserinfo.password     = null;       // no password has been entered by user
-            jschuserinfo.savePassword = false;      // user has not checked 'save password' checkbox
-            if (savedlogin != null) {
-                String savedpw = savedlogin.getPassword ();
-                jschuserinfo.dbpassword = savedpw;  // this password is available in database
-            }
-            jsession.setPassword ("");
-            jsession.setUserInfo (jschuserinfo);
-            mysession.ScreenMsg ("...connecting to host\n");
-            jsession.connect (CONN_TIMEOUT_MS);
-            mysession.ScreenMsg ("...opening shell channel\n");
-            connection = (ChannelShell)jsession.openChannel ("shell");
-            mysession.ScreenMsg ("...creating streams\n");
-            input  = new InputStreamReader  (connection.getInputStream  ());
-            output = new OutputStreamWriter (connection.getOutputStream ());
-            mysession.ScreenMsg ("...setting pty type 'dumb'\n");
-            connection.setPtyType ("dumb");
-            mysession.ScreenMsg ("...connecting shell channel\n");
-            connection.connect (CONN_TIMEOUT_MS);
-            mysession.ScreenMsg ("...connected\n");
-            mysession.SetConnectionOutput (connection, output);
-            screendatahandler.sendEmptyMessage (ScreenDataHandler.CONNCOMP);
-        } catch (Exception e) {
-            Log.w (TAG, "connect error", e);
-            screendatahandler.obtainMessage (ScreenDataHandler.CONERROR, e.getMessage ()).sendToTarget ();
-            try { connection.disconnect (); } catch (Exception ee) { }
-            try { output.close (); } catch (Exception ee) { }
-            eof = true;
-            return;
-        }
-
-        /*
-         * Receiving...
-         */
-        try {
-            int max = buf.length;
-            while (!die) {
-
-                // wait while gui owns the buffer
-                // any data from host will be buffered in the kernel's TCP window
-                synchronized (this) {
-                    while (guiownsit && !die) {
-                        this.wait ();
-                    }
-                }
-
-                // read something from the host, waiting if necessary.
-                int len;
-                do len = input.read (buf, 0, max);
-                while (len == 0);
-                if (len < 0) break;
-
-                // wait while screen is frozen so it doesn't get modified
-                // if we are here a while, TCP window will close and remote host will block
-                mysession.getScreentextview ().Squelched ();
-
-                // turn buffer over to the gui thread
-                synchronized (this) {
-                    guiownsit = true;
-                    screendatahandler.sendEmptyMessage (len);
-                }
-            }
-            screendatahandler.sendEmptyMessage (ScreenDataHandler.ENDED);
-        } catch (Exception e) {
-            Log.w (TAG, "receive error", e);
-            screendatahandler.obtainMessage (ScreenDataHandler.RCVERROR, e.getMessage ()).sendToTarget ();
-        } finally {
-            eof = true;
+        synchronized (this) {
+            enabled = true;
+            if (!started) start ();
+                else notifyAll ();
+            started = true;
         }
     }
 
     /**
-     * Select keypair suitable for this connection.
-     * @param lastone = null: no keypair was used last time we connected to this username@hostname[:portnumber]
-     *                  else: ident of keypair used last time
-     * @returns null: do not use a keypair for connection
-     *          else: ident of keypair to use for connection
+     * Tell thread to exit and wait for it.
+     * Called in GUI thread.
      */
-    private String SelectKeypair (String lastone)
-            throws Exception
+    public void terminate ()
     {
-        /*
-         * Get sorted list of all defined keypair files.
-         */
-        TreeMap<String,String> matches = new LocalKeyPairMenu (sshclient).GetExistingKeypairIdents ();
+        if (started) {
+            // tell thread to terminate asap
+            terminated = true;
+            synchronized (this) {
+                while (true) {
 
-        /*
-         * If empty, can't possibly use any keypair.
-         * If only one, might as well try that one.
-         * If still have the last one around, try that one.
-         */
-        if (matches.size () == 0) return null;
-        if (matches.size () == 1) return matches.firstKey ();
-        if ((lastone != null) && matches.containsKey (lastone)) return lastone;
+                    // wake thread so it will see terminate flag
+                    // in case it is in its wait() call
+                    notifyAll ();
 
-        /*
-         * More than one possible, display selection menu and wait for answer.
-         */
-        mysession.getScreendatahandler ().obtainMessage (ScreenDataHandler.SELKEYPAIR, matches).sendToTarget ();
-        String answer;
-        synchronized (matches) {
-            while (!matches.containsKey ("<<answer>>")) {
-                matches.wait ();
+                    // disconnect any open channel
+                    // should be sufficient to get its input.read() to terminate
+                    try { output.close       (); } catch (Exception e) { }
+                    try { channel.disconnect (); } catch (Exception e) { }
+                    output  = null;
+                    channel = null;
+
+                    // we are done if thread has seen terminate flag
+                    if (!enabled) break;
+
+                    // wait for it to see the terminate flag
+                    try { wait (); } catch (InterruptedException ie) { }
+                }
             }
-            answer = matches.get ("<<answer>>");
+
+            // wait for thread to actually exit
+            while (true) try {
+                join ();
+                break;
+            } catch (InterruptedException ie) { }
         }
-        if ("<<cancel>>".equals (answer)) throw new Exception ("keypair selection cancelled");
-        return answer;
+    }
+
+    /**
+     * GUI is detaching.
+     * Shed pointers to anything we don't want to keep while detached.
+     *
+     * Things get re-attached in MySession constructor.
+     */
+    //TODO move this to JSessionService
+    public void detach ()
+    {
+        // this is how stuff gets from the ScreenTextBuffer to the GUI
+        screenTextBuffer.SetChangeNotification (null);
+
+        // release any other GUI stuff
+        checkForGUIDetaches (detstate, "");
+    }
+
+    //TODO move this to JSessionService
+    private static void checkForGUIDetaches (HashMap map, String indent)
+    {
+        for (Object key : map.keySet ()) {
+            Object obj = map.get (key);
+            if (obj instanceof HashMap) {
+                Log.d (TAG, "ScreenDataThread.detach: " + indent + key.toString () + "=(" + obj.getClass ().getSimpleName () + ")...");
+                checkForGUIDetaches ((HashMap)obj, indent + "  ");
+            } else {
+                Log.d (TAG, "ScreenDataThread.detach: " + indent + key.toString () + "=(" + obj.getClass ().getSimpleName () + ")" + obj.toString ());
+                if (obj instanceof GUIDetach) {
+                    Log.d (TAG, "ScreenDataThread.detach: " + indent + "- GUIDetach");
+                    ((GUIDetach)obj).guiDetach ();
+                }
+            }
+        }
+    }
+
+    /**
+     * Shell mode thread that reads data from the host and posts it to the ScreenTextBuffer,
+     * whether or not there is a GUI to look at it.
+     */
+    @Override
+    public void run ()
+    {
+        do {
+            InputStreamReader input = null;
+
+            try {
+                // open shell channel
+                screenTextBuffer.ScreenMsg ("\n[" + hhmmssNow () + "] opening shell\n");
+                channel = (ChannelShell)jsession.openChannel ("shell");
+                screenTextBuffer.ScreenMsg ("...creating streams\n");
+                input   = new InputStreamReader  (channel.getInputStream  ());
+                output  = new OutputStreamWriter (channel.getOutputStream ());
+                screenTextBuffer.ScreenMsg ("...setting pty type 'dumb'\n");
+                channel.setPtyType ("dumb");
+                screenTextBuffer.ScreenMsg ("...connecting shell\n");
+                channel.connect ();
+                screenTextBuffer.ScreenMsg ("...connected\n");
+
+                // read screen data from host and send it to screen
+                char[] buf = new char[4096];
+                int len;
+                while (!terminated && ((len = input.read (buf, 0, buf.length)) >= 0)) {
+                    screenTextBuffer.Incoming (buf, 0, len);
+                }
+            } catch (Exception e) {
+                Log.w (TAG, "receive error", e);
+                screenTextBuffer.ScreenMsg ("\n[" + hhmmssNow () + "] receive error: " + SshClient.GetExMsg (e) + "\n");
+            }
+
+            // end of shell channel, display message
+            if (!terminated) {
+                screenTextBuffer.ScreenMsg ("\n[" + hhmmssNow () + "] shell closed\n");
+                screenTextBuffer.ScreenMsg (
+                    jsession.isConnected () ?
+                            "  menu/more/shell to re-open\n  menu/more/disconnect or EXIT to disconnect\n" :
+                            "  menu/more/disconnect then reconnect to re-open\n"
+                );
+            }
+
+            // get everything closed up
+            // then wait to be re-enabled or terminated
+            synchronized (this) {
+                try { input.close        (); } catch (Exception e) { }
+                try { output.close       (); } catch (Exception e) { }
+                try { channel.disconnect (); } catch (Exception e) { }
+                output  = null;
+                channel = null;
+                enabled = false;
+                notifyAll ();
+
+                while (!enabled && !terminated) {
+                    try { wait (); } catch (InterruptedException ie) { }
+                }
+            }
+        } while (!terminated);
+    }
+
+    public static String hhmmssNow ()
+    {
+        return new SimpleDateFormat ("HH:mm:ss").format(new Date ());
     }
 }

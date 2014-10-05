@@ -292,7 +292,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
                        remove (hk);
                    }
                 });
-                ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+                ab.setNegativeButton ("Cancel", null);
                 ab.show ();
             }
         };
@@ -315,7 +315,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
         sv.addView (llv);
 
         ab.setView (sv);
-        ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
         currentMenuDialog = ab.show ();
     }
 
@@ -325,7 +325,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
     private void ReadExistingFile ()
     {
         try {
-            BufferedReader rdr = new BufferedReader (sshclient.EncryptedFileReader (knownhostsfilename), 4096);
+            BufferedReader rdr = new BufferedReader (sshclient.getMasterPassword ().EncryptedFileReader (knownhostsfilename), 4096);
             try {
                 String rec;
                 while ((rec = rdr.readLine ()) != null) {
@@ -345,7 +345,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
         } catch (FileNotFoundException fnfe) {
         } catch (Exception e) {
             Log.e (TAG, "error reading " + knownhostsfilename, e);
-            sshclient.ErrorAlert ("Error reading known hosts", e.getMessage ());
+            sshclient.ErrorAlert ("Error reading known hosts", SshClient.GetExMsg (e));
         }
     }
 
@@ -356,7 +356,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
     private void RewriteFile ()
     {
         try {
-            PrintWriter wtr = new PrintWriter (sshclient.EncryptedFileWriter (knownhostsfilename + ".tmp"));
+            PrintWriter wtr = new PrintWriter (sshclient.getMasterPassword ().EncryptedFileWriter (knownhostsfilename + ".tmp"));
             for (String host : pool.keySet ()) {
                 for (HostKey hk : pool.get (host)) {
                     String type = hk.getType ();
@@ -376,10 +376,10 @@ public class MyHostKeyRepo implements HostKeyRepository {
                 }
             }
             wtr.close ();
-            SshClient.RenameTempToPerm (knownhostsfilename);
+            MasterPassword.RenameTempToPerm (knownhostsfilename);
         } catch (Exception e) {
             Log.e (TAG, "error writing " + knownhostsfilename, e);
-            sshclient.ErrorAlert ("Error writing known hosts", e.getMessage ());
+            sshclient.ErrorAlert ("Error writing known hosts", SshClient.GetExMsg (e));
         }
     }
 

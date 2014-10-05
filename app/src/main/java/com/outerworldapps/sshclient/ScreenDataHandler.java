@@ -30,7 +30,6 @@ import android.content.DialogInterface;
 import android.os.Handler;
 import android.os.Message;
 import android.text.InputType;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -41,23 +40,21 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.jcraft.jsch.ChannelShell;
+
+import java.io.OutputStreamWriter;
 import java.util.TreeMap;
 
 public class ScreenDataHandler extends Handler {
-    public static final int HIDE_TOPBAR_MS = 5000;
+    public static final String TAG = "SshClient";
 
-    public final static int ENDED      =   0;
-    public final static int RCVERROR   =  -1;
-    public final static int CONNCOMP   =  -2;
-    public final static int OKDIAG     =  -3;
-    public final static int CONERROR   =  -4;
-    public final static int TEXTDIAG   =  -5;
-    public final static int YESNODIAG  =  -6;
-    public final static int SCREENMSG  =  -7;
-    public final static int CONNHIDE   =  -8;
-    public final static int INVALTEXT  =  -9;
-    public final static int SELKEYPAIR = -10;
-    public final static int PANCOAST   = -11;
+    public final static int OKDIAG     = 1;
+    public final static int TEXTDIAG   = 2;
+    public final static int YESNODIAG  = 3;
+    public final static int CONNHIDE   = 4;
+    public final static int INVALTEXT  = 5;
+    public final static int SELKEYPAIR = 6;
+    public final static int PANCOAST   = 7;
 
     private AlertDialog currentMenuDialog;
     private MySession session;
@@ -67,58 +64,18 @@ public class ScreenDataHandler extends Handler {
     {
         session = ms;
         sshclient = ms.getSshClient ();
-
     }
 
     public void dispatchMessage (Message msg)
     {
         HostNameText hostnametext = session.getHostnametext ();
-        JschUserInfo jschuserinfo = session.getJschuserinfo ();
         ScreenDataThread screendatathread = session.getScreendatathread ();
         ScreenTextView screentextview = session.getScreentextview ();
 
-        int len = msg.what;
-        if (len > 0) {
-            screentextview.Incoming (screendatathread.buf, 0, len);
-            synchronized (screendatathread) {
-                screendatathread.guiownsit = false;
-                screendatathread.notify ();
-            }
-        }
+        switch (msg.what) {
 
-        else switch (len) {
-
-            // normal EOF from host
-            case ENDED: {
-                hostnametext.SetState (HostNameText.ST_DISCO);
-                sshclient.ErrorAlert ("Session ended", "Host closed connection");
-                break;
-            }
-
-            // got an exception reading from remote host, display error message
-            case RCVERROR: {
-                hostnametext.SetState (HostNameText.ST_DISCO);
-                sshclient.ErrorAlert ("Receive error", (String) msg.obj);
-                break;
-            }
-
-            // connection has completed,
-            //   save username/hostname info to database
-            //   put focus in screen text window
-            //   hide the username@hostname[:portnumber] entry box in 5 seconds
-            case CONNCOMP: {
-                hostnametext.SetState (HostNameText.ST_ONLINE);
-
-                String uah = hostnametext.getText ().toString ();
-                String kpi = screendatathread.getKeypairident ();
-                String pwd = jschuserinfo.savePassword ? jschuserinfo.getPassword () : null;
-                SavedLogin sh = new SavedLogin (uah, kpi, pwd);
-                sshclient.getSavedlogins ().put (sh);
-                sshclient.getSavedlogins ().SaveChanges ();
-                screentextview.requestFocus ();
-                if (HIDE_TOPBAR_MS > 0) sendEmptyMessageDelayed (CONNHIDE, HIDE_TOPBAR_MS);
-                break;
-            }
+            // connection has been open for a few seconds,
+            // hide the user@host:port box to save screen space
             case CONNHIDE: {
                 if (hostnametext.GetState () == HostNameText.ST_ONLINE) {
                     hostnametext.SetState (HostNameText.ST_ONHIDE);
@@ -129,13 +86,6 @@ public class ScreenDataHandler extends Handler {
             // put up a dialog box with just an OK button
             case OKDIAG: {
                 sshclient.ErrorAlert ("SSH Message", (String) msg.obj);
-                break;
-            }
-
-            // got an exception connecting to remote host, display error message
-            case CONERROR: {
-                hostnametext.SetState (HostNameText.ST_DISCO);
-                sshclient.ErrorAlert ("Connect error", (String) msg.obj);
                 break;
             }
 
@@ -195,12 +145,14 @@ public class ScreenDataHandler extends Handler {
                 ab.setNegativeButton ("Cancel", new DialogInterface.OnClickListener () {
                     public void onClick (DialogInterface dialog, int whichButton)
                     {
-                        synchronized (args) {
-                            args[2] = "Cancel";
-                            args[3] = null;
-                            args[4] = null;
-                            args.notify ();
-                        }
+                        ClickedPasswordDialogCancelButton (args);
+                    }
+                });
+                ab.setOnCancelListener (new DialogInterface.OnCancelListener () {
+                    @Override
+                    public void onCancel (DialogInterface dialogInterface)
+                    {
+                        ClickedPasswordDialogCancelButton (args);
                     }
                 });
 
@@ -230,8 +182,7 @@ public class ScreenDataHandler extends Handler {
                 ab.setTitle ("SSH Yes/No Prompt");
                 ab.setMessage (args[0]);
                 ab.setPositiveButton ("Yes", new DialogInterface.OnClickListener () {
-                    public void onClick (DialogInterface dialog, int whichButton)
-                    {
+                    public void onClick (DialogInterface dialog, int whichButton) {
                         synchronized (args) {
                             args[1] = "Yes";
                             args.notify ();
@@ -239,22 +190,18 @@ public class ScreenDataHandler extends Handler {
                     }
                 });
                 ab.setNegativeButton ("No", new DialogInterface.OnClickListener () {
-                    public void onClick (DialogInterface dialog, int whichButton)
+                    public void onClick (DialogInterface dialog, int whichButton) {
+                        ClickedYesNoDialogNoButton (args);
+                    }
+                });
+                ab.setOnCancelListener (new DialogInterface.OnCancelListener () {
+                    @Override
+                    public void onCancel (DialogInterface dialogInterface)
                     {
-                        synchronized (args) {
-                            args[1] = "No";
-                            args.notify ();
-                        }
+                        ClickedYesNoDialogNoButton (args);
                     }
                 });
                 ab.show ();
-                break;
-            }
-
-            // append the given message on to the screen text
-            case SCREENMSG: {
-                String str = (String) msg.obj;
-                screentextview.Incoming (str.toCharArray (), 0, str.length ());
                 break;
             }
 
@@ -279,12 +226,10 @@ public class ScreenDataHandler extends Handler {
 
                 View.OnClickListener butlis = new View.OnClickListener () {
                     @Override
-                    public void onClick (View view) {
+                    public void onClick (View view)
+                    {
                         currentMenuDialog.dismiss ();
-                        synchronized (matches) {
-                            matches.put ("<<answer>>", ((Button) view).getText().toString ());
-                            matches.notifyAll ();
-                        }
+                        SelectedKeyPair (matches, ((Button) view).getText().toString ());
                     }
                 };
 
@@ -303,10 +248,7 @@ public class ScreenDataHandler extends Handler {
                 ab.setPositiveButton ("None", new DialogInterface.OnClickListener () {
                     public void onClick (DialogInterface dialog, int whichButton)
                     {
-                        synchronized (matches) {
-                            matches.put ("<<answer>>", null);
-                            matches.notifyAll ();
-                        }
+                        SelectedKeyPair (matches, null);
                     }
                 });
 
@@ -314,10 +256,15 @@ public class ScreenDataHandler extends Handler {
                 ab.setNegativeButton ("Cancel", new DialogInterface.OnClickListener () {
                     public void onClick (DialogInterface dialog, int whichButton)
                     {
-                        synchronized (matches) {
-                            matches.put ("<<answer>>", "<<cancel>>");
-                            matches.notifyAll ();
-                        }
+                        SelectedKeyPair (matches, "<<cancel>>");
+                    }
+                });
+
+                ab.setOnCancelListener (new DialogInterface.OnCancelListener () {
+                    @Override
+                    public void onCancel (DialogInterface dialogInterface)
+                    {
+                        SelectedKeyPair (matches, "<<cancel>>");
                     }
                 });
 
@@ -332,7 +279,7 @@ public class ScreenDataHandler extends Handler {
                 break;
             }
 
-            default: throw new RuntimeException ("bad what " + len);
+            default: throw new RuntimeException ("bad what " + msg.what);
         }
     }
 
@@ -350,6 +297,37 @@ public class ScreenDataHandler extends Handler {
             args[3] = input.getText ().toString ();
             args[4] = (savecb == null) ? null : savecb.isChecked () ? "Yes" : "No";
             args.notify ();
+        }
+    }
+
+    /**
+     * Someone just clicked the Cancel button on a passphrase/password dialog box,
+     * or clicked the Back button to cancel it.
+     * @param args = argument array that we use to signal completion on
+     */
+    private static void ClickedPasswordDialogCancelButton (String[] args)
+    {
+        synchronized (args) {
+            args[2] = "Cancel";
+            args[3] = null;
+            args[4] = null;
+            args.notify ();
+        }
+    }
+
+    private static void ClickedYesNoDialogNoButton (String[] args)
+    {
+        synchronized (args) {
+            args[1] = "No";
+            args.notify ();
+        }
+    }
+
+    private static void SelectedKeyPair (TreeMap<String,String> matches, String selection)
+    {
+        synchronized (matches) {
+            matches.put ("<<answer>>", selection);
+            matches.notifyAll ();
         }
     }
 }

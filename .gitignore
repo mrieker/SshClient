@@ -1,4 +1,6 @@
 *~
 .gradle
 .idea/workspace.xml
+app/app.apk
+app/app-aligned.apk
 app/build/

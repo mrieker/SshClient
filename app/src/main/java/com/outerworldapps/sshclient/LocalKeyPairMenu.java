@@ -123,7 +123,7 @@ public class LocalKeyPairMenu {
         sv.addView (llv);
         ab.setView (sv);
 
-        ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
         currentMenuDialog = ab.show ();
     }
 
@@ -153,17 +153,26 @@ public class LocalKeyPairMenu {
     /**
      * Display menu to operate on the given existing keypair files.
      */
-    private void ShowExistingKeypairMenu (String ident)
+    private void ShowExistingKeypairMenu (final String ident)
     {
+        final File privatekeyfile = new File (sshclient.getPrivatekeyfilename (ident));
+        final File publickeyfile  = new File (sshclient.getPublickeyfilename (ident));
+
+        String publickeyfingr;
+        try {
+            byte[] publickeybytes = sshclient.getMasterPassword ().ReadEncryptedFileBytes (publickeyfile.getAbsolutePath ());
+            KeyPair kpair = KeyPair.load (new JSch (), null, publickeybytes);
+            publickeyfingr = kpair.getFingerPrint ();
+        } catch (Exception e) {
+            publickeyfingr = SshClient.GetExMsg (e);
+        }
+
         final AlertDialog.Builder ab = new AlertDialog.Builder (sshclient);
         ab.setTitle ("Local Keypair");
-        ab.setMessage (ident);
+        ab.setMessage (ident + "\n" + publickeyfingr);
 
         LinearLayout llv = new LinearLayout (sshclient);
         llv.setOrientation (LinearLayout.VERTICAL);
-
-        final File privatekeyfile = new File (sshclient.getPrivatekeyfilename (ident));
-        final File publickeyfile  = new File (sshclient.getPublickeyfilename (ident));
 
         /*
          * Display a button to delete the keypair files.
@@ -175,8 +184,19 @@ public class LocalKeyPairMenu {
             public void onClick (View v) {
                 if (++ count >= 2) {
                     currentMenuDialog.dismiss ();
-                    publickeyfile.delete ();
-                    privatekeyfile.delete ();
+                    AlertDialog.Builder abd = new AlertDialog.Builder (sshclient);
+                    abd.setTitle ("Delete existing keypair " + ident);
+                    abd.setMessage ("Are you sure?");
+                    abd.setPositiveButton ("OK", new DialogInterface.OnClickListener () {
+                        @Override
+                        public void onClick (DialogInterface dialogInterface, int i)
+                        {
+                            publickeyfile.delete ();
+                            privatekeyfile.delete ();
+                        }
+                    });
+                    abd.setNegativeButton ("Cancel", null);
+                    abd.show ();
                 }
             }
         });
@@ -236,7 +256,7 @@ public class LocalKeyPairMenu {
         ScrollView sv = new ScrollView (sshclient);
         sv.addView (llv);
         ab.setView (sv);
-        ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
         currentMenuDialog = ab.show ();
     }
 
@@ -351,8 +371,8 @@ public class LocalKeyPairMenu {
 
                     // http://www.jcraft.com/jsch/examples/KeyGen.java.html
                     KeyPair kpair = KeyPair.genKeyPair (new JSch (), type, size);
-                    OutputStream prvkey = sshclient.EncryptedFileOutputStream (prvkeyfn);
-                    OutputStream pubkey = sshclient.EncryptedFileOutputStream (pubkeyfn);
+                    OutputStream prvkey = sshclient.getMasterPassword ().EncryptedFileOutputStream (prvkeyfn);
+                    OutputStream pubkey = sshclient.getMasterPassword ().EncryptedFileOutputStream (pubkeyfn);
                     kpair.writePrivateKey (prvkey, pp.getBytes ("UTF-8"));
                     kpair.writePublicKey  (pubkey, ident);
                     prvkey.close ();
@@ -366,18 +386,19 @@ public class LocalKeyPairMenu {
                     new File (pubkeyfn).delete ();
                     AlertDialog.Builder abe = new AlertDialog.Builder (sshclient);
                     abe.setTitle ("Keypair generation error");
-                    abe.setMessage (e.getMessage());
+                    abe.setMessage (SshClient.GetExMsg (e));
                     abe.setPositiveButton ("OK", new DialogInterface.OnClickListener () {
                         public void onClick (DialogInterface dialog, int whichButton) {
                             currentMenuDialog.show ();
                         }
                     });
+                    abe.setNegativeButton ("Cancel", null);
                     abe.show ();
                 }
             }
         });
 
-        ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
 
         currentMenuDialog = ab.show ();
     }
@@ -458,7 +479,7 @@ public class LocalKeyPairMenu {
                                 WriteKeypairFiles (kpair, prvbin, pubbin);
                             }
                         });
-                        ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+                        ab.setNegativeButton ("Cancel", null);
                         ab.show ();
                     } else {
                         WriteKeypairFiles (kpair, prvbin, pubbin);
@@ -467,19 +488,20 @@ public class LocalKeyPairMenu {
                     Log.w (TAG, "error loading keypair", e);
                     AlertDialog.Builder abe = new AlertDialog.Builder (sshclient);
                     abe.setTitle ("Keypair load error");
-                    abe.setMessage (e.getMessage());
+                    abe.setMessage (SshClient.GetExMsg (e));
                     abe.setPositiveButton ("OK", new DialogInterface.OnClickListener ()
                     {
                         public void onClick (DialogInterface dialog, int whichButton) {
                             currentMenuDialog.show ();
                         }
                     });
+                    abe.setNegativeButton ("Cancel", null);
                     abe.show ();
                 }
             }
         });
 
-        ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
 
         currentMenuDialog = ab.show ();
     }
@@ -498,8 +520,8 @@ public class LocalKeyPairMenu {
         String prvfnm = sshclient.getPrivatekeyfilename (ident);
         String pubfnm = sshclient.getPublickeyfilename (ident);
         try {
-            sshclient.WriteEncryptedFileBytes (prvfnm, prvbin);
-            sshclient.WriteEncryptedFileBytes (pubfnm, pubbin);
+            sshclient.getMasterPassword ().WriteEncryptedFileBytes (prvfnm, prvbin);
+            sshclient.getMasterPassword ().WriteEncryptedFileBytes (pubfnm, pubbin);
             sshclient.ErrorAlert ("Keypair name and fingerprint", ident + "\n" + kpair.getFingerPrint ());
         } catch (Exception e) {
             Log.e (TAG, "error writing keypair", e);
@@ -507,12 +529,13 @@ public class LocalKeyPairMenu {
             new File (pubfnm).delete ();
             AlertDialog.Builder abe = new AlertDialog.Builder (sshclient);
             abe.setTitle ("Keypair write error");
-            abe.setMessage (e.getMessage());
+            abe.setMessage (SshClient.GetExMsg (e));
             abe.setPositiveButton ("OK", new DialogInterface.OnClickListener () {
                 public void onClick (DialogInterface dialog, int whichButton) {
                     currentMenuDialog.show ();
                 }
             });
+            abe.setNegativeButton ("Cancel", null);
             abe.show ();
         }
     }
@@ -528,7 +551,7 @@ public class LocalKeyPairMenu {
     {
         StringBuilder sb = new StringBuilder ();
         try {
-            BufferedReader br = new BufferedReader (sshclient.EncryptedFileReader (filename), 4096);
+            BufferedReader br = new BufferedReader (sshclient.getMasterPassword ().EncryptedFileReader (filename), 4096);
             int ch;
             while ((ch = br.read ()) >= 0) {
                 sb.append ((char)ch);
@@ -536,7 +559,7 @@ public class LocalKeyPairMenu {
             br.close ();
         } catch (Exception e) {
             Log.w (TAG, "error reading " + filename, e);
-            sshclient.ErrorAlert ("Error reading " + filename, e.getMessage ());
+            sshclient.ErrorAlert ("Error reading " + filename, SshClient.GetExMsg (e));
             return null;
         }
         return sb.toString ();

@@ -29,8 +29,6 @@ import android.app.Activity;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.text.InputType;
 import android.view.View;
@@ -44,7 +42,6 @@ import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import java.lang.reflect.Type;
 import java.util.TreeMap;
 
 public class Settings {
@@ -56,8 +53,9 @@ public class Settings {
     /*
      * Use field.GetValue() to get the setting's value.
      */
-    public _Bool show_eols  = new _Bool ("showEOLs",  "Show EOL markers", false);
-    public _Bool wrap_lines = new _Bool ("wrapLines", "Wrap long lines",  true);
+    public _Bool incl_hid   = new _Bool ("inclHidden", "Include hidden files", false);
+    public _Bool show_eols  = new _Bool ("showEOLs",   "Show EOL markers",     false);
+    public _Bool wrap_lines = new _Bool ("wrapLines",  "Wrap long lines",      true);
 
     public _FontSize font_size = new _FontSize ("fontSize", "Font size", 20, TEXT_SIZE_MIN, TEXT_SIZE_MAX);
     public _MaxChars max_chars = new _MaxChars ("maxChars", "Max total chars", 65536, 64, 1024*1024);
@@ -90,13 +88,27 @@ public class Settings {
             }
     );
 
+    public _Radio xfr_prog = new _Radio ("xfrProg", "Transfer progress",
+            PDiagdFileTasks.PROG_HIERARC | PDiagdFileTasks.PROG_PRESCAN,
+            new int[] {
+                    0,
+                    PDiagdFileTasks.PROG_HIERARC,
+                    PDiagdFileTasks.PROG_HIERARC | PDiagdFileTasks.PROG_PRESCAN
+            },
+            new String[] {
+                    "Data files only",
+                    "Hierarchy w/out dir sizes",
+                    "Hierarchy with dir sizes"
+            }
+    );
+
     private SharedPreferences prefs;
     private SshClient sshclient;
     private TreeMap<String,_Value> values;
 
     /**
      * Construct the class -
-     * - reads the values if any in from the settings file
+     * - reads the values if any in from the preferences file
      * - leaves default values for any that aren't there
      */
     public Settings (SshClient sc)
@@ -118,7 +130,9 @@ public class Settings {
         llv.setOrientation (LinearLayout.VERTICAL);
 
         // put all the values and their descriptions in a vertical list
-        for (_Value v : values.values ()) {
+        TreeMap<String,_Value> sortedByLabel = new TreeMap<String,_Value> ();
+        for (_Value v : values.values ()) sortedByLabel.put (v.label, v);
+        for (_Value v : sortedByLabel.values ()) {
             TextView lbl = new TextView (sshclient);
             lbl.setTextSize (SshClient.UNIFORM_TEXT_SIZE * 1.5F);
             lbl.setText (" " + v.label);
@@ -148,7 +162,7 @@ public class Settings {
                 }
                 editr.commit ();
                 ApplySettings ();
-                sshclient.getCurrentsession ().ShowScreen ();
+                sshclient.onBackPressed ();
             }
         });
         llv.addView (save);
@@ -172,6 +186,30 @@ public class Settings {
         // display the menu always in portrait orientation
         sshclient.setRequestedOrientation (ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         sshclient.setContentView (sv);
+
+        // set up method to be called if this screen is back-buttoned to
+        sshclient.pushBackAction (new SshClient.BackAction () {
+            @Override
+            public boolean okToPop () {
+                // it is always ok to back-button away from this page
+                return true;
+            }
+            @Override
+            public void reshow ()
+            {
+                ShowMenu ();
+            }
+            @Override
+            public String name ()
+            {
+                return "settings";
+            }
+            @Override
+            public MySession session ()
+            {
+                return null;
+            }
+        });
     }
 
     /**
@@ -180,7 +218,7 @@ public class Settings {
     private void ApplySettings ()
     {
         for (MySession s : sshclient.getAllsessions ()) {
-            s.getScreentextview ().LoadSettings ();
+            s.LoadSettings ();
         }
     }
 
@@ -329,13 +367,17 @@ public class Settings {
                 }
             });
 
-            // display all that horizontally
+            // display the two buttons horizontally
+            // and display the current value below them
             LinearLayout llh = new LinearLayout (sshclient);
             llh.setOrientation (LinearLayout.HORIZONTAL);
             llh.addView (bigger);
             llh.addView (smaller);
-            llh.addView (current);
-            return llh;
+            LinearLayout llv = new LinearLayout (sshclient);
+            llv.setOrientation (LinearLayout.VERTICAL);
+            llv.addView (llh);
+            llv.addView (current);
+            return llv;
         }
 
         @Override
@@ -415,7 +457,7 @@ public class Settings {
                         throw new NumberFormatException ("out of range " + min + " to " + max);
                     }
                 } catch (NumberFormatException nfe) {
-                    sshclient.ErrorAlert (this.label, nfe.getMessage () + "\n- reverted to original value");
+                    sshclient.ErrorAlert (this.label, SshClient.GetExMsg (nfe) + "\n- reverted to original value");
                     txt.setText (Integer.toString (value));
                 }
             }
@@ -458,11 +500,7 @@ public class Settings {
 
             // set up text box to demo size and show the number
             final TextView current = sshclient.MyTextView ();
-            current.setText (" [" + temp + "] ");
-
-            // set up text to show min and max allowed
-            final TextView lbl = sshclient.MyTextView ();
-            lbl.setText ("power of two");
+            current.setText (" [" + temp + "] power of two");
 
             // set up button to increase the size
             Button bigger = sshclient.MyButton ();
@@ -473,7 +511,7 @@ public class Settings {
                 {
                     if (temp < max) {
                         temp *= 2;
-                        current.setText (" [" + temp + "] ");
+                        current.setText (" [" + temp + "] power of two");
                     }
                 }
             });
@@ -486,44 +524,28 @@ public class Settings {
                 public void onClick (View view) {
                     if (temp > min) {
                         temp /= 2;
-                        current.setText (" [" + temp + "] ");
+                        current.setText (" [" + temp + "] power of two");
                     }
                 }
             });
 
-            // display all that horizontally
+            // display the two buttons horizontally
+            // and display the current value below them
             LinearLayout llh = new LinearLayout (sshclient);
             llh.setOrientation (LinearLayout.HORIZONTAL);
             llh.addView (bigger);
             llh.addView (smaller);
-            llh.addView (current);
-            llh.addView (lbl);
-            return llh;
+            LinearLayout llv = new LinearLayout (sshclient);
+            llv.setOrientation (LinearLayout.VERTICAL);
+            llv.addView (llh);
+            llv.addView (current);
+            return llv;
         }
 
         @Override
         public void UpdateFromView ()
         {
             value = temp;
-        }
-
-        private String CalcScreenDims ()
-        {
-            ScreenTextView stv = sshclient.getCurrentsession ().getScreentextview ();
-            int scrw = stv.getWidth  () - stv.getPaddingLeft () - stv.getPaddingRight ();
-            int scrh = stv.getHeight () - stv.getPaddingTop () - stv.getPaddingBottom ();
-            Paint paint = new Paint ();
-            paint.setTypeface (Typeface.MONOSPACE);
-            paint.setTextSize (value);
-            Rect bounds = new Rect ();
-            paint.getTextBounds ("M", 0, 1, bounds);
-            int chrw = bounds.width ();
-            int chrh = bounds.height ();
-
-            if ((scrw > 0) && (scrh > 0) && (chrw > 0) && (chrh > 0)) {
-                return (scrw / chrw) + " x " + (scrh / chrh);
-            }
-            return "(min " + min + ", max " + max + ")";
         }
     }
 
@@ -557,6 +579,15 @@ public class Settings {
         public int GetValue ()
         {
             return value;
+        }
+
+        public void SetValue (int val)
+        {
+            value = val;
+            SharedPreferences.Editor editr = prefs.edit ();
+            editr.putString (name, Integer.toString (value));
+            editr.commit ();
+            ApplySettings ();
         }
 
         @Override

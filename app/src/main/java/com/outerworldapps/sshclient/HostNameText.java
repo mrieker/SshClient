@@ -29,6 +29,7 @@ package com.outerworldapps.sshclient;
 
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.text.method.KeyListener;
 import android.view.KeyEvent;
@@ -39,6 +40,9 @@ import android.widget.TextView;
 
 public class HostNameText extends AutoCompleteTextView
         implements TextView.OnEditorActionListener, View.OnFocusChangeListener {
+
+    public static final int HIDE_TOPBAR_MS = 5000;
+
     public final static int ST_ENTER  = 0;  // entering value
     public final static int ST_CONN   = 1;  // attempting to connect
     public final static int ST_ONLINE = 2;  // connected and online, with this view visible
@@ -47,6 +51,7 @@ public class HostNameText extends AutoCompleteTextView
 
     private int state = ST_ENTER;
     private KeyListener normalKeyListener;
+    private long hideUptimeMillis = Long.MAX_VALUE;
     private MySession session;
     private SshClient sshclient;
 
@@ -82,14 +87,17 @@ public class HostNameText extends AutoCompleteTextView
     {
         switch (st) {
             case ST_ENTER: {
+                hideUptimeMillis = Long.MAX_VALUE;
                 setVisibility (View.VISIBLE);
                 setKeyListener (normalKeyListener);
                 setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
                 setBackgroundColor (Color.WHITE);
                 setTextColor (Color.BLACK);
+                requestFocus ();
                 break;
             }
             case ST_CONN: {
+                hideUptimeMillis = Long.MAX_VALUE;
                 setVisibility (View.VISIBLE);
                 setKeyListener (null);
                 setBackgroundColor (Color.BLACK);
@@ -101,14 +109,27 @@ public class HostNameText extends AutoCompleteTextView
                 setKeyListener (null);
                 setBackgroundColor (Color.BLACK);
                 setTextColor (Color.GREEN);
+                if (HIDE_TOPBAR_MS > 0) {
+                    long oldQueued = hideUptimeMillis;
+                    hideUptimeMillis = SystemClock.uptimeMillis () + HIDE_TOPBAR_MS;
+                    if (hideUptimeMillis < oldQueued) {
+                        session.getScreendatahandler ().sendEmptyMessageAtTime (ScreenDataHandler.CONNHIDE, hideUptimeMillis);
+                    }
+                }
                 break;
             }
             case ST_ONHIDE: {
-                setVisibility (View.GONE);
-                setKeyListener (null);
+                if (hideUptimeMillis <= SystemClock.uptimeMillis ()) {
+                    setVisibility (View.GONE);
+                    setKeyListener (null);
+                    hideUptimeMillis = Long.MAX_VALUE;
+                } else if (hideUptimeMillis < Long.MAX_VALUE) {
+                    session.getScreendatahandler ().sendEmptyMessageAtTime (ScreenDataHandler.CONNHIDE, hideUptimeMillis);
+                }
                 break;
             }
             case ST_DISCO: {
+                hideUptimeMillis = Long.MAX_VALUE;
                 setVisibility (View.VISIBLE);
                 setKeyListener (normalKeyListener);
                 setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);

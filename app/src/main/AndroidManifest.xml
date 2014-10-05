@@ -1,26 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
 	package="com.outerworldapps.sshclient"
-	android:versionCode="10000"
-	android:versionName="1.0" >
+	android:versionCode="20000"
+	android:versionName="2.0" >
 
 	<uses-sdk android:minSdkVersion="8" />
-	<uses-permission android:name="android.permission.INTERNET"/>
+	<uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
-	<application
+    <!--
+     need android:launchMode="singleInstance" for this sequence:
+      1) open app from home page icon
+      2) open connection in shell mode
+      3) click home button
+      4) open app from status bar
+      5) click home button
+      6) open app from home page icon
+         ...get new instance, old connection lost
+    -->
+    <application
 		android:icon="@drawable/launch_image"
 		android:label="@string/app_name" >
 		<activity
 			android:name=".SshClient"
 			android:label="@string/app_name"
-            android:configChanges="screenLayout|orientation"
             android:alwaysRetainTaskState="true"
+            android:configChanges="screenLayout|orientation"
+            android:launchMode="singleInstance"
             android:windowSoftInputMode="adjustResize">
 			<intent-filter>
 				<action android:name="android.intent.action.MAIN" />
 				<category android:name="android.intent.category.LAUNCHER" />
 			</intent-filter>
 		</activity>
+        <service android:name=".JSessionService" />
 	</application>
 
 </manifest>

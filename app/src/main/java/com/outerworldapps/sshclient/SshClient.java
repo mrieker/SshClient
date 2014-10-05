@@ -25,47 +25,20 @@
 package com.outerworldapps.sshclient;
 
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
-import java.io.Reader;
-import java.io.Writer;
-import java.math.BigInteger;
-import java.security.InvalidKeyException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.util.LinkedList;
-import java.util.Set;
-
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.os.Bundle;
 import android.text.ClipboardManager;
-import android.text.InputType;
 import android.util.Log;
-import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.view.inputmethod.EditorInfo;
-import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -74,47 +47,67 @@ import android.widget.RadioButton;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import javax.crypto.Cipher;
-import javax.crypto.CipherInputStream;
-import javax.crypto.CipherOutputStream;
-import javax.crypto.NoSuchPaddingException;
-import javax.crypto.spec.SecretKeySpec;
+import java.io.File;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
 
 public class SshClient extends Activity {
     public static final String TAG = "SshClient";
 
     public static final float UNIFORM_TEXT_SIZE = 20.0F;
 
-    private static final String THEGOODPW = "qwerasdv82u34l;jhsd90v672154jhgwef8a3o2i45yq2w98fyaile54y1298346aslidyq239846sdlih3l457q29836" +
-            "293487ck3u8t3465e23gs6r77ws7rwhkfls46h34982qgqish1642ixhg1lwzh`1-2s1-37[efuw;sdcjpw91027-107ao867`096iauz895e1iu2t`-=`=s;lcn4";
+    // what to do when back button pressed
+    public interface BackAction {
+        public boolean okToPop ();    // it is ok to pop this page
+        public void reshow ();        // how to reshow this page
+        public String name ();        // unique name for this page
+        public MySession session ();  // null if this page doesn't set session
+    }
 
     private AlertDialog currentMenuDialog;        // currently displayed AlertDialog (if needed by its callbacks)
-    private boolean hasAgreed;
-    private File masterpwfile;                    // stores validation parameters for master password
+    private AlertDialog extendedMenuAD;
+    private boolean masterPWGood;
+    private FileExplorerView localFilesOnly;
+    private HashMap<CharSequence,Runnable> allMainMenuItems = new HashMap<CharSequence,Runnable> ();
+    private HelpView helpView;
     private int lastSessionNumber;
+    private JSessionService jSessionService;
+    private LinkedList<BackAction> backActionStack = new LinkedList<BackAction> ();
     private LinkedList<MySession> allsessions = new LinkedList<MySession> ();
+    private MasterPassword masterPassword;
     private MyHostKeyRepo myhostkeyrepo;          // holds list of known hosts
     private MySession currentsession;             // session currently selected by user
     private SavedLogins savedlogins;              // list of username@hostname[:portnumber] we have connected to
-    private SecretKeySpec secretkeyspec;          // used to encrypt/decrypt our data files
-    private SecureRandom secrand;
     private Settings settings;                    // user settable settings
     private String knownhostsfilename;            // name of file that holds known remote hosts (hosts we have the signature for)
     public  String internalClipboard = "";
     private String privatekeywildname;            // name of file that holds the local private key
     private String publickeywildname;             // name of file that holds the local public key
+    private TunnelMenu tunnelMenu;                // shows list of tunnels for a given user@host:port
+    private View contentView;                     // what was last set with setContentView()
 
     public LinkedList<MySession> getAllsessions () { return allsessions; }
+    public MasterPassword getMasterPassword () { return masterPassword; }
     public MyHostKeyRepo getMyhostkeyrepo () { return myhostkeyrepo; }
     public MySession getCurrentsession () { return currentsession; }
     public int getNextSessionNumber () { return ++ lastSessionNumber; }
+    public void setLastSessionNumber (int sn) { if (lastSessionNumber < sn) lastSessionNumber = sn; }
     public SavedLogins getSavedlogins () { return savedlogins; }
     public Settings getSettings () { return settings; }
     public String getKnownhostsfilename () { return knownhostsfilename; }
     public String getPrivatekeyfilename (String ident) { return privatekeywildname.replace ("*", ident); }
     public String getPublickeyfilename  (String ident) { return publickeywildname.replace  ("*", ident); }
+    public View getContentView () { return contentView; }
+    public TunnelMenu getTunnelMenu () { return tunnelMenu; }
+    public JSessionService getJSessionService () { return jSessionService; }
 
-    public void setCurrentsession (MySession s) { currentsession = s; }
+    public void setCurrentsession (MySession s)
+    {
+        currentsession = s;
+        jSessionService.currentSessionNumber = s.getSessionNumber ();
+    }
 
     /**
      * Called when the activity is first created.
@@ -124,7 +117,49 @@ public class SshClient extends Activity {
     {
         super.onCreate (savedInstanceState);
 
-        Log.d (TAG, "starting");
+        /*
+         * Bind to the JSessionService.
+         */
+        Log.d (TAG, "Binding JSessionService");
+        JSessionService.bindit (this, new JSessionService.ConDiscon () {
+            @Override
+            public void onConDiscon (JSessionService jss)
+            {
+                jSessionService = jss;
+                StartInitialSession ();
+            }
+        });
+    }
+
+    @Override
+    public void onDestroy ()
+    {
+        super.onDestroy ();
+        if (jSessionService != null) {
+            Collection<ScreenDataThread> sdts = jSessionService.getAllScreenDataThreads ();
+            Log.d (TAG, "onDestroy: " + sdts.size () + " thread(s)");
+            for (ScreenDataThread sdt : sdts) {
+                sdt.detach ();
+            }
+            Log.d (TAG, "Unbinding JSessionService");
+            jSessionService.unbindit ();
+        }
+    }
+
+    /**
+     * Screen is being brought to front.
+     */
+    @Override
+    public void onResume ()
+    {
+        super.onResume ();
+
+        Log.d (TAG, "app starting");
+
+        /*
+         * Block back and menu keys until master password is validated.
+         */
+        masterPWGood = false;
 
         /*
          * Show user the help page which has licenses at the bottom.
@@ -137,7 +172,8 @@ public class SshClient extends Activity {
         } else {
             LinearLayout llv = new LinearLayout (this);
             llv.setOrientation (LinearLayout.VERTICAL);
-            llv.addView (MakeHtmlView (R.raw.help, "help"));
+            helpView = new HelpView (this);
+            llv.addView (helpView);
 
             TextView tv = MyTextView ();
             tv.setText ("Note:  The above can be re-displayed later by clicking on the Android menu button then More then HELP.");
@@ -175,160 +211,199 @@ public class SshClient extends Activity {
         }
     }
 
+    /**
+     * User has, at some time in the past anyway, agreed to the license.
+     */
     private void HasAgreed ()
     {
-        hasAgreed = true;
-
-        /*
-         * If master password file exists, prompt user for the master password before we do anything.
-         * Note that if someone maliciously deleted the master password file to skip password prompt,
-         * we won't be able to decrypt our data files.
-         */
-        masterpwfile = new File (getFilesDir (), "master_password.enc");
-        if (masterpwfile.exists ()) {
-            PromptForMasterPassword ();
-        } else {
-
-            /*
-             * No master password file exists, use our fixed encryption key
-             * until user sets a master password, if ever.
-             */
-            try {
-                MessageDigest md = MessageDigest.getInstance ("SHA-256");
-                byte[] mdbytes = md.digest (THEGOODPW.getBytes ("UTF-8"));
-                secretkeyspec = new SecretKeySpec (mdbytes, "AES");
-            } catch (Exception e) {
-                Log.e (TAG, "error setting up null encryption", e);
-                ErrorAlert ("Error setting up mull encryption", e.getMessage ());
-                return;
-            }
-            HaveMasterPassword ();
+        // make sure we have a masterPassword struct set up
+        if (masterPassword == null) {
+            masterPassword = new MasterPassword (this);
         }
-    }
 
-    /**
-     * A master password file exists so prompt the user to enter it.
-     */
-    private void PromptForMasterPassword ()
-    {
-        final EditText masterPasswordText = new EditText (this);
-        masterPasswordText.setInputType (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        masterPasswordText.setOnEditorActionListener (new TextView.OnEditorActionListener () {
-            @Override // TextView.OnEditorActionListener
-            public boolean onEditorAction (TextView v, int actionId, KeyEvent ke)
-            {
-                if ((actionId == EditorInfo.IME_ACTION_DONE) || (actionId == EditorInfo.IME_ACTION_NEXT)) {
-                    currentMenuDialog.dismiss ();
-                    EnteredMasterPassword (masterPasswordText);
-                    return true;
-                }
-                return false;
-            }
-        });
-        AlertDialog.Builder ab = new AlertDialog.Builder (this);
-        ab.setTitle ("Enter master password");
-        ab.setView (masterPasswordText);
-        ab.setPositiveButton ("OK", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton)
-            {
-                EnteredMasterPassword (masterPasswordText);
-            }
-        });
-        ab.setNegativeButton ("Cancel", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton)
-            {
-                finish ();
-            }
-        });
-        currentMenuDialog = ab.show ();
-    }
+        // Please Stand By... so they can't interact with the screen
+        TextView tv = MyTextView ();
+        tv.setText ("checking master password...");
+        super.setContentView (tv);
 
-    /**
-     * User has presumably entered the master password, scrape it from text box and hashit.
-     */
-    private void EnteredMasterPassword (TextView masterPasswordText)
-    {
-        try {
-            String masterpasswordstring = masterPasswordText.getText ().toString ().trim ();
-            MessageDigest md = MessageDigest.getInstance ("SHA-256");
-            byte[] masterpassworddigest = md.digest (masterpasswordstring.getBytes ("UTF-8"));
-            secretkeyspec = new SecretKeySpec (masterpassworddigest, "AES");
-            BufferedReader br = new BufferedReader (EncryptedFileReader (masterpwfile.getPath ()), 1024);
-            try {
-                String salt = br.readLine ();  // random salt string
-                String good = br.readLine ();  // a known text
-                // usually can't even read the lines if pw is bad but give it a final check...
-                if (!good.equals (THEGOODPW)) {
-                    throw new Exception ("data check bad");
-                }
-            } finally {
-                br.close ();
-            }
-        } catch (Exception e) {
-            Log.w (TAG, "error verifying " + masterpwfile.getPath (), e);
-            PromptForMasterPassword ();
-            return;
-        }
-        HaveMasterPassword ();
+        // start (re-)authentication (might complete immediately)
+        masterPassword.Authenticate ();
     }
 
     /**
      * Master password, if any, is valid and we are ready to go.
      */
-    private void HaveMasterPassword ()
+    public void HaveMasterPassword ()
     {
+        /*
+         * Successfully (re-)authenticated, enable buttons and restore display.
+         */
+        masterPWGood = true;
+        if (contentView != null) {
+            super.setContentView (contentView);
+        }
+
         /*
          * Now that we know how to read our datafiles, set everything else up...
          */
-        knownhostsfilename = new File (getFilesDir (), "known_hosts.enc").getPath ();
-        privatekeywildname = new File (getFilesDir (), "private_key_*.enc").getPath ();
-        publickeywildname  = new File (getFilesDir (), "public_key_*.enc").getPath  ();
-        savedlogins        = new SavedLogins (this);
-        settings           = new Settings (this);
-        myhostkeyrepo      = new MyHostKeyRepo (this);
-
-        /*
-         * We always have a current session, even if not connected to anything.
-         */
-        currentsession = new MySession (this);
-        allsessions.addLast (currentsession);
-        currentsession.ShowScreen ();
-
-        Log.d (TAG, "started");
-    }
-
-    /**
-     * Display an error alert dialog box, or really just anything that just
-     * needs a simple OK button and doesn't need to wait for a response.
-     */
-    public void ErrorAlert (String title, String message)
-    {
-        AlertDialog.Builder ab = new AlertDialog.Builder (this);
-        ab.setTitle (title);
-        ab.setMessage (message);
-        ab.setPositiveButton ("OK", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton)
-            { }
-        });
-        ab.show ();
-    }
-
-    /**
-     * Make beep sound.
-     */
-    public static void MakeBeepSound ()
-    {
-        try {
-            // requires VIBRATE permission
-            //Vibrator vib = (Vibrator)getSystemService (Activity.VIBRATOR_SERVICE);
-            //vib.vibrate (200);
-
-            ToneGenerator tg = new ToneGenerator (AudioManager.STREAM_NOTIFICATION, 100);
-            tg.startTone (ToneGenerator.TONE_PROP_BEEP);
-        } catch (Exception e) {
-            // sometimes ToneGenerator throws RuntimeException: 'Init failed'
-            Log.w (TAG, "make beep sound error", e);
+        if (knownhostsfilename == null) {
+            knownhostsfilename = new File (getFilesDir (), "known_hosts.enc").getPath ();
+            privatekeywildname = new File (getFilesDir (), "private_key_*.enc").getPath ();
+            publickeywildname  = new File (getFilesDir (), "public_key_*.enc").getPath  ();
+            savedlogins        = new SavedLogins (this);
+            settings           = new Settings (this);
+            myhostkeyrepo      = new MyHostKeyRepo (this);
+            tunnelMenu         = new TunnelMenu (this);
         }
+
+        Log.d (TAG, "app started");
+
+        StartInitialSession ();
+    }
+
+    /**
+     * If just being resumed presumably with all our state intact, we are done.
+     * Otherwise, get session going, either an unconnected one or previous connections.
+     */
+    private void StartInitialSession ()
+    {
+        if ((knownhostsfilename != null) && (jSessionService != null) && (currentsession == null)) {
+
+            /*
+             * See if JSessionService has any saved threads.
+             */
+            Collection<ScreenDataThread> savedThreads = jSessionService.getAllScreenDataThreads ();
+            MySession mysession = null;
+            if (!savedThreads.isEmpty ()) {
+
+                /*
+                 * There are saved threads, each one is a connected session..
+                 * Restore each thread to a session struct then select the current one.
+                 */
+                for (ScreenDataThread sdt : savedThreads) {
+                    MySession ms = new MySession (this, sdt);
+                    if (ms.getSessionNumber () == jSessionService.currentSessionNumber) {
+                        mysession = ms;
+                    }
+                    allsessions.addLast (ms);
+                }
+            }
+
+            /*
+             * If we didn't find a session to restore, make up a blank one
+             * so we always have a current session.
+             */
+            if (mysession == null) {
+                mysession = new MySession (this);
+                allsessions.addLast (mysession);
+            }
+
+            /*
+             * Whatever session we selected as current, display it.
+             */
+            mysession.ShowScreen ();
+        }
+    }
+
+    /**
+     * Intercept these calls so we know what we are displaying.
+     */
+    @Override
+    public void setContentView (View v)
+    {
+        contentView = v;
+        super.setContentView (v);
+    }
+
+    /****************************\
+     *  BACK Button Processing  *
+    \****************************/
+
+    /**
+     * If BACK button pressed while in help screen,
+     * use it to navigate backward through history.
+     *
+     * Otherwise, process it normally, ie, exit app.
+     * JSessionService should keep connections alive
+     * even if user exited by mistake.
+     */
+    @Override
+    public void onBackPressed ()
+    {
+        // if back button pressed while asking for master password,
+        // exit the app
+        if (!masterPWGood) {
+            finish ();
+            return;
+        }
+
+        // get screen currently displayed
+        BackAction curScreen = backActionStack.removeFirst ();
+
+        // if it says it can't be popped now, push it back and that's it for now
+        // it should alert the user as to what to do to get out
+        if (!curScreen.okToPop ()) {
+            backActionStack.addFirst (curScreen);
+            return;
+        }
+
+        // if there is something internal to go back to, go back to it
+        if (!popBackAction ()) {
+
+            // nothing to go back to, exit the app
+            // but do not disconnect sessions in case exiting by mistake
+            finish ();
+        }
+    }
+
+    /**
+     * A new page was just made current, push an entry on the stack that can reproduce it
+     * in case the back button tries to go back to it sometime later.
+     */
+    public void pushBackAction (BackAction ba)
+    {
+        // if same page is buried way back in the stack, remove the old entry
+        String baname = ba.name ();
+        for (Iterator<BackAction> it = backActionStack.iterator (); it.hasNext ();) {
+            BackAction dup = it.next ();
+            if (dup.name ().equals (baname)) {
+                it.remove ();
+            }
+        }
+
+        // make this page the currently displayed page
+        backActionStack.addFirst (ba);
+    }
+
+    /**
+     * Pop back to top element on back action stack.
+     */
+    private boolean popBackAction ()
+    {
+        // find latest screen that sets a session as current
+        currentsession = null;
+        for (BackAction ba : backActionStack) {
+            currentsession = ba.session ();
+            if (currentsession != null) break;
+        }
+
+        // if no session in anything left on stack, tell caller all empty
+        if (currentsession == null) {
+
+            // get rid of left over junk like help
+            // we can never go back to any of it
+            // cuz there is no session behind it
+            backActionStack.clear ();
+
+            // tell caller that stack was empty
+            return false;
+        }
+
+        // pop very latest off stack and it will re-push itself if it wants to
+        backActionStack.removeFirst ().reshow ();
+
+        // tell caller we had something to pop to
+        return true;
     }
 
     /*************************\
@@ -340,78 +415,247 @@ public class SshClient extends Activity {
     public boolean onCreateOptionsMenu (Menu menu)
     {
         // main menu
-        menu.add ("Ctrl-...");
-        menu.add ("Ctrl-C");
-        menu.add ("Freeze");
-        menu.add ("Paste");
-        menu.add ("Tab");
+        AddMMenuItem (menu, "Ctrl-...", new Runnable () {
+            public void run () {
+                currentsession.AssertCtrlKeyFlag ();
+            }
+        });
+        AddMMenuItem (menu, "Ctrl-C", new Runnable () {
+            public void run () {
+                currentsession.SendCharToHost (3);
+            }
+        });
+        AddMMenuItem (menu, "Freeze", new Runnable () {
+            public void run () {
+                currentsession.getScreentextview ().FreezeThaw ();
+            }
+        });
+        AddMMenuItem (menu, "Paste", new Runnable () {
+            public void run () {
+                PasteClipboardToHostShell ();
+            }
+        });
+        AddMMenuItem (menu, "Tab", new Runnable () {
+            public void run () {
+                currentsession.SendCharToHost (9);
+            }
+        });
+        AddMMenuItem (menu, "More >>", new Runnable () {
+            public void run () {
+                extendedMenuAD.show ();
+            }
+        });
 
         // extended menu
-        menu.add ("clear screen");
-        menu.add ("EXIT");
-        menu.add ("HELP");
-        menu.add ("known hosts");
-        menu.add ("local keypairs");
-        menu.add ("main screen");
-        menu.add ("master password");
-        menu.add ("saved logins");
-        menu.add ("sessions");
-        menu.add ("settings");
+        // make an AlertDialog with scrolled buttons
+        // cuz scrolling the Android-provided extended menu doesn't always work
+        LinearLayout xmll = new LinearLayout (this);
+        xmll.setOrientation (LinearLayout.VERTICAL);
 
-        return true;
+        AddXMenuItem (xmll, "clear screen", new Runnable () {
+            public void run () {
+                currentsession.getScreentextview ().Clear ();
+            }
+        });
+        AddXMenuItem (xmll, "clipboard <-> file", new Runnable () {
+            public void run () {
+                currentsession.ClipboardToFromFileMenu ();
+            }
+        });
+        AddXMenuItem (xmll, "disconnect", new Runnable () {
+            public void run () {
+                DisconnectConfirm (currentsession);
+            }
+        });
+        AddXMenuItem (xmll, "EXIT", new Runnable () {
+            public void run () {
+                ExitButtonClicked ();
+            }
+        });
+        AddXMenuItem (xmll, "file transfer", new Runnable () {
+            public void run () {
+                currentsession.SetScreenMode (MySession.MSM_FILES);
+            }
+        });
+        AddXMenuItem (xmll, "HELP", new Runnable () {
+            public void run () {
+                ShowHelpScreen ();
+            }
+        });
+        AddXMenuItem (xmll, "known hosts", new Runnable () {
+            public void run () {
+                myhostkeyrepo.ShowKnownHostMenu ();
+            }
+        });
+        AddXMenuItem (xmll, "local files only", new Runnable () {
+            public void run () {
+                ShowLocalFilesOnly ();
+            }
+        });
+        AddXMenuItem (xmll, "local keypairs", new Runnable () {
+            public void run () {
+                new LocalKeyPairMenu (SshClient.this).ShowLocalKeyPairMenu ();
+            }
+        });
+        AddXMenuItem (xmll, "master password", new Runnable () {
+            public void run () {
+                masterPassword.ShowMenu ();
+            }
+        });
+        AddXMenuItem (xmll, "saved logins", new Runnable () {
+            public void run () {
+                savedlogins.ShowSavedLoginsMenu ();
+            }
+        });
+        AddXMenuItem (xmll, "sessions", new Runnable () {
+            public void run () {
+                ShowSessionsMenu ();
+            }
+        });
+        AddXMenuItem (xmll, "settings", new Runnable () {
+            public void run () {
+                settings.ShowMenu ();
+            }
+        });
+        AddXMenuItem (xmll, "shell", new Runnable () {
+            public void run () {
+                currentsession.SetScreenMode (MySession.MSM_SHELL);
+            }
+        });
+        AddXMenuItem (xmll, "tunnels", new Runnable () {
+            public void run ()
+            {
+                currentsession.SetScreenMode (MySession.MSM_TUNNEL);
+            }
+        });
+
+        ScrollView sv = new ScrollView (this);
+        sv.addView (xmll);
+        AlertDialog.Builder ab = new AlertDialog.Builder (this);
+        ab.setView (sv);
+        ab.setNegativeButton ("Cancel", null);
+        extendedMenuAD = ab.create ();
+
+        return super.onCreateOptionsMenu (menu);
+    }
+
+    // add item to main (Android-provided) menu
+    private void AddMMenuItem (Menu menu, String ident, Runnable runit)
+    {
+        menu.add (ident);
+        allMainMenuItems.put (ident, runit);
+    }
+
+    // add item to our extended (scrolled button list) menu
+    private void AddXMenuItem (LinearLayout xmll, String ident, final Runnable runit)
+    {
+        Button xmb = MyButton ();
+        xmb.setOnClickListener (new View.OnClickListener () {
+            @Override
+            public void onClick (View view) {
+                extendedMenuAD.dismiss ();
+                runit.run ();
+            }
+        });
+        xmb.setText (ident);
+        xmll.addView (xmb);
+    }
+
+    // This is called whenever the main Android-provided menu is opened by the user.
+    // We want to make sure our extended (scrolled button list) menu is closed.
+    @Override
+    public boolean onMenuOpened (int featureId, Menu menu)
+    {
+        // if menu button pressed while asking for master password,
+        // exit the app
+        if (!masterPWGood) {
+            finish ();
+            return true;
+        }
+
+        extendedMenuAD.dismiss ();
+        return super.onMenuOpened (featureId, menu);
     }
 
     // This is called when someone clicks on an item in the
     // main menu displayed by the hardware menu button.
+    // We make sure our extended menu is closed then call the function.
     @Override
     public boolean onOptionsItemSelected (MenuItem menuItem)
     {
-        if (!hasAgreed) return true;
-
         CharSequence sel = menuItem.getTitle ();
-
-        if ("Ctrl-...".equals (sel)) currentsession.AssertCtrlKeyFlag ();
-        if ("Ctrl-C".equals (sel)) currentsession.SendCharToHost (3);
-        if ("Freeze".equals (sel)) currentsession.getScreentextview ().FreezeThaw ();
-        if ("Paste".equals (sel)) PasteClipboardToHost ();
-        if ("Tab".equals (sel)) currentsession.SendCharToHost (9);
-
-        if ("clear screen".equals (sel)) currentsession.getScreentextview ().Clear ();
-        if ("EXIT".equals (sel)) ExitButtonClicked ();
-        if ("HELP".equals (sel)) ShowHelpScreen ();
-        if ("known hosts".equals (sel)) myhostkeyrepo.ShowKnownHostMenu ();
-        if ("local keypairs".equals (sel)) new LocalKeyPairMenu (this).ShowLocalKeyPairMenu ();
-        if ("main screen".equals (sel)) currentsession.ShowScreen ();
-        if ("master password".equals (sel)) ShowMasterPasswordMenu ();
-        if ("saved logins".equals (sel)) savedlogins.ShowSavedLoginsMenu ();
-        if ("sessions".equals (sel)) ShowSessionsMenu ();
-        if ("settings".equals (sel)) settings.ShowMenu ();
-
-        return true;
+        Runnable runit = allMainMenuItems.get (sel);
+        if (runit != null) {
+            extendedMenuAD.dismiss ();
+            runit.run ();
+            return true;
+        }
+        return super.onOptionsItemSelected (menuItem);
     }
 
-    private void PasteClipboardToHost ()
+    /**
+     * Paste contents of clipboard to shell.
+     * Shell must be ready to accept, eg, in a 'cat > file.txt' command.
+     */
+    private void PasteClipboardToHostShell ()
     {
-        if (currentsession.getScreentextview ().isFrozen ()) {
+        if (currentsession.getScreentextview ().IsFrozen ()) {
             ErrorAlert ("Paste to host", "disabled while screen frozen");
             return;
         }
         final AlertDialog.Builder ab = new AlertDialog.Builder (this);
         ab.setTitle ("Paste clipboard to host");
         ab.setPositiveButton ("Internal", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton)
-            {
+            public void onClick (DialogInterface dialog, int whichButton) {
                 currentsession.SendStringToHost (internalClipboard);
             }
         });
         ab.setNeutralButton ("External", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton)
-            {
+            public void onClick (DialogInterface dialog, int whichButton) {
                 ClipboardManager cbm = (ClipboardManager) getSystemService (CLIPBOARD_SERVICE);
                 currentsession.SendStringToHost (cbm.getText ().toString ());
             }
         });
-        ab.setNegativeButton ("Cancel", NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
+        ab.show ();
+    }
+
+    /**
+     * Confirm disconnection/deletion of the given session.
+     */
+    private void DisconnectConfirm (final MySession ms)
+    {
+        AlertDialog.Builder ab = new AlertDialog.Builder (SshClient.this);
+        ab.setTitle ("Confirm disconnect session");
+        ab.setMessage (ms.GetSessionName ());
+        ab.setPositiveButton ("OK", new DialogInterface.OnClickListener () {
+            public void onClick (DialogInterface dialog, int whichButton)
+            {
+                // drop TCP connection and kill thread
+                ms.Disconnect ();
+
+                // remove session from list of all sessions
+                for (Iterator<MySession> it = allsessions.iterator (); it.hasNext ();) {
+                    MySession s = it.next ();
+                    if (s == ms) it.remove ();
+                }
+
+                // remove any session-related pages from backActionStack
+                for (Iterator<BackAction> it = backActionStack.iterator (); it.hasNext ();) {
+                    BackAction ba = it.next ();
+                    if (ba.session () == ms) it.remove ();
+                }
+
+                // pop back to whatever is left on stack
+                // or if empty, create a new session
+                if (!popBackAction ()) {
+                    MySession s = new MySession (SshClient.this);
+                    allsessions.addLast (s);
+                    s.ShowScreen ();
+                }
+            }
+        });
+        ab.setNegativeButton ("Cancel", null);
         ab.show ();
     }
 
@@ -423,123 +667,76 @@ public class SshClient extends Activity {
         ab.setPositiveButton ("OK", new DialogInterface.OnClickListener () {
             public void onClick (DialogInterface dialog, int whichButton)
             {
-                System.exit (0);
+                ShutdownEverything ();
             }
         });
-        ab.setNegativeButton ("Cancel", NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
         ab.show ();
     }
 
-    /**
-     * Show the master password menu.
-     */
-    private void ShowMasterPasswordMenu ()
+    private void ShutdownEverything ()
     {
-        final AlertDialog.Builder ab = new AlertDialog.Builder (this);
-        ab.setTitle ("Master Password");
-        ab.setMessage ("encrypts internal database");
+        for (MySession ms : allsessions) {
+            ms.Disconnect ();
+        }
+        finish ();
+    }
 
-        LinearLayout llv = new LinearLayout (this);
-        llv.setOrientation (LinearLayout.VERTICAL);
+    // open screen to explore local filesystem without having to be connected
+    private void ShowLocalFilesOnly ()
+    {
+        // create the file viewer if the first time here
+        if (localFilesOnly == null) {
 
-        final EditText pw1txt = MyEditText ();
-        final EditText pw2txt = MyEditText ();
-        pw1txt.setSingleLine (true);
-        pw2txt.setSingleLine (true);
-        pw1txt.setHint ("enter new master password");
-        pw2txt.setHint ("enter same password again");
-        pw1txt.setInputType (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        pw2txt.setInputType (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        llv.addView (pw1txt);
-        llv.addView (pw2txt);
+            // make two local file navigator screens
+            FileExplorerNav lcl1 = new MySession.MyFENav (this, "local-1");
+            FileExplorerNav lcl2 = new MySession.MyFENav (this, "local-2");
+            lcl1.addReadables (this);
+            lcl2.addReadables (this);
 
-        ScrollView sv = new ScrollView (this);
-        sv.addView (llv);
+            // wrap them in a file viewer screen
+            localFilesOnly = new MySession.MyFEView (this);
+            localFilesOnly.addFileNavigator (lcl1);
+            localFilesOnly.addFileNavigator (lcl2);
 
-        ab.setView (sv);
+            // set both current directories to the cache directory
+            lcl1.setCurrentDir (GetLocalDir ());
+            lcl2.setCurrentDir (GetLocalDir ());
 
-        ab.setPositiveButton ("Set/Change", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton) {
-                String pw1str = pw1txt.getText ().toString ().trim ();
-                String pw2str = pw2txt.getText ().toString ().trim ();
-                if (pw1str.equals ("") || !pw1str.equals (pw2str)) {
-                    ErrorAlert ("Set/Change master password", "master passwords are empty or do not match");
-                    currentMenuDialog.show ();
-                } else {
-                    SetChangeMasterPassword (pw2str);
-                }
+            // start with local-1
+            localFilesOnly.setCurrentFileNavigator (lcl1);
+        }
+
+        // display the file viewer screen
+        setContentView (localFilesOnly);
+
+        // set up how to pop back to this screen
+        pushBackAction (new BackAction () {
+
+            // it is always OK to pop it off with the back button
+            @Override
+            public boolean okToPop () {
+                return true;
+            }
+
+            // this is how to redisplay when the back button pops to it
+            @Override
+            public void reshow () {
+                ShowLocalFilesOnly ();
+            }
+
+            // make sure there is only one of these in the back stack
+            @Override
+            public String name () {
+                return "localfilesonly";
+            }
+
+            // it does not have any session association
+            @Override
+            public MySession session () {
+                return null;
             }
         });
-
-        ab.setNegativeButton ("Cancel", NullCancelListener);
-
-        currentMenuDialog = ab.show ();
-    }
-
-    /**
-     * Set or Change the master password to the given string.
-     */
-    private void SetChangeMasterPassword (String masterpasswordstring)
-    {
-        String savedloginsfilename = savedlogins.GetFileName ();
-        Set<String> keypairidents = new LocalKeyPairMenu (this).GetExistingKeypairIdents ().keySet ();
-
-        try {
-            SecretKeySpec oldsecretkeyspec = secretkeyspec;
-            MessageDigest md = MessageDigest.getInstance ("SHA-256");
-            SecretKeySpec newsecretkeyspec = new SecretKeySpec (md.digest (masterpasswordstring.getBytes ("UTF-8")), "AES");
-
-            // re-encrypt all data files to temp files
-            boolean havesavedlogins = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, savedloginsfilename);
-            boolean haveknownhosts  = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, knownhostsfilename);
-            for (String ident : keypairidents) {
-                ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, privatekeywildname.replace ("*", ident));
-                ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, publickeywildname.replace  ("*", ident));
-            }
-
-            // write out new temp master password file
-            // also activates new master key
-            secretkeyspec = newsecretkeyspec;
-            File masterpwtemp = new File (masterpwfile.getPath () + ".tmp");
-            PrintWriter pw = new PrintWriter (EncryptedFileWriter (masterpwtemp.getPath ()));
-            pw.println (GenerateRandomSalt ());
-            pw.println (THEGOODPW);
-            pw.close ();
-
-            // rename master password and data temp files to permanent names
-            // a crash in here and it's borked
-            if (havesavedlogins) RenameTempToPerm (savedloginsfilename);
-            if (haveknownhosts)  RenameTempToPerm (knownhostsfilename);
-            for (String ident : keypairidents) {
-                RenameTempToPerm (privatekeywildname.replace ("*", ident));
-                RenameTempToPerm (publickeywildname.replace  ("*", ident));
-            }
-            RenameTempToPerm (masterpwfile.getPath ());
-
-            ErrorAlert ("Set/Change master password", "New master password set");
-        } catch (Exception e) {
-            Log.e (TAG, "error setting/changing master password", e);
-            ErrorAlert ("Error setting/changing master password", e.getMessage ());
-        }
-    }
-
-    private boolean ReEncryptFile (SecretKeySpec oldsecretkeyspec, SecretKeySpec newsecretkeyspec, String permfilename)
-            throws IOException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        secretkeyspec = oldsecretkeyspec;
-        byte[] plainbin = ReadEncryptedFileBytesOrNull (permfilename);
-        if (plainbin == null) return false;
-
-        String tempfilename = permfilename + ".tmp";
-        secretkeyspec = newsecretkeyspec;
-        WriteEncryptedFileBytes (tempfilename, plainbin);
-        return true;
-    }
-
-    private String GenerateRandomSalt ()
-    {
-        if (secrand == null) secrand = new SecureRandom ();
-        return new BigInteger (256, secrand).toString (32);
     }
 
     /**
@@ -571,37 +768,8 @@ public class SshClient extends Activity {
             public boolean onLongClick (View view)
             {
                 currentMenuDialog.dismiss ();
-
                 final MySession ms = (MySession) view.getTag ();
-                AlertDialog.Builder ab = new AlertDialog.Builder (SshClient.this);
-                ab.setTitle ("Confirm disconnect session");
-                ab.setMessage (ms.GetSessionName ());
-                ab.setPositiveButton ("OK", new DialogInterface.OnClickListener () {
-                    public void onClick (DialogInterface dialog, int whichButton) {
-                        ms.Disconnect ();
-
-                        // remove session from list of all sessions
-                        MySession prev = null;
-                        for (MySession s : allsessions) {
-                            if (s == ms) break;
-                            prev = s;
-                        }
-                        allsessions.remove (ms);
-
-                        if (ms == currentsession) {
-
-                            // make the previous session in the list current
-                            if (prev == null) prev = allsessions.peek ();
-                            if (prev == null) {
-                                prev = new MySession (SshClient.this);
-                                allsessions.addLast (prev);
-                            }
-                            prev.ShowScreen ();
-                        }
-                    }
-                });
-                ab.setNegativeButton ("Cancel", NullCancelListener);
-                ab.show ();
+                DisconnectConfirm (ms);
                 return true;
             }
         };
@@ -635,7 +803,7 @@ public class SshClient extends Activity {
                 ms.ShowScreen ();
             }
         });
-        ab.setNegativeButton ("Cancel", NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
 
         currentMenuDialog = ab.show ();
     }
@@ -645,42 +813,40 @@ public class SshClient extends Activity {
      */
     private void ShowHelpScreen ()
     {
+        // make sure we have a view that displays the help web page stuff
+        if (helpView == null) helpView = new HelpView (this);
+
+        // display whatever is on the help page
         setRequestedOrientation (ActivityInfo.SCREEN_ORIENTATION_USER);
-        setContentView (MakeHtmlView (R.raw.help, "help"));
-    }
+        setContentView (helpView);
 
-    private WebView MakeHtmlView (int resid, String name)
-    {
-        StringBuilder html = new StringBuilder ();
-        char[] buf = new char[4096];
-        int rc;
-        try {
-            InputStream is = getResources ().openRawResource (resid);
-            InputStreamReader ir = new InputStreamReader (is);
-            while ((rc = ir.read (buf)) > 0) {
-                html.append (buf, 0, rc);
+        pushBackAction (new BackAction () {
+            @Override
+            public boolean okToPop () {
+                // if webview doesn't have a page to go back to
+                // then it is ok to pop the help page off
+                if (!helpView.canGoBack ()) {
+                    return true;
+                }
+                // webview has a page to go back to, tell it to back up a page
+                // then don't pop the webview off the stack as it is still current
+                helpView.goBack ();
+                return false;
             }
-            ir.close ();
-        } catch (IOException ioe) {
-            Log.e (TAG, "error reading " + name, ioe);
-            ErrorAlert ("Error reading " + name, ioe.getMessage ());
-            return null;
-        }
-        String htmlstr = html.toString ();
-
-        try {
-            PackageInfo pInfo = getPackageManager ().getPackageInfo (getPackageName (), 0);
-            htmlstr = htmlstr.replace ("%versionname%", pInfo.versionName);
-            htmlstr = htmlstr.replace ("%versioncode%", Integer.toString (pInfo.versionCode));
-        } catch (PackageManager.NameNotFoundException nnfe)
-        { }
-
-        WebView viewer = new WebView (this);
-        viewer.getSettings ().setBuiltInZoomControls (true);
-        viewer.loadData (htmlstr, "text/html", null);
-        return viewer;
+            @Override
+            public void reshow () {
+                ShowHelpScreen ();
+            }
+            @Override
+            public String name () {
+                return "help";
+            }
+            @Override
+            public MySession session () {
+                return null;
+            }
+        });
     }
-
 
     /*********************************************************\
      *  Simple widget wrappers to provide uniform text size  *
@@ -721,116 +887,59 @@ public class SshClient extends Activity {
         return v;
     }
 
-    /**************************************\
-     *  Encrypted file reading & writing  *
-     *  Uses master password key          *
-    \**************************************/
-
-    public Reader EncryptedFileReader (String path)
-            throws FileNotFoundException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        InputStream ciphertextstream = new FileInputStream (path);
-        if (secretkeyspec != null) {
-            Cipher cipher = Cipher.getInstance ("AES");
-            cipher.init (Cipher.DECRYPT_MODE, secretkeyspec);
-            ciphertextstream = new CipherInputStream (ciphertextstream, cipher);
-        }
-        return new InputStreamReader (ciphertextstream);
-    }
-
-    public byte[] ReadEncryptedFileBytes (String path)
-            throws IOException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        InputStream ciphertextstream = new FileInputStream (path);
-        try {
-            if (secretkeyspec != null) {
-                Cipher cipher = Cipher.getInstance ("AES");
-                cipher.init (Cipher.DECRYPT_MODE, secretkeyspec);
-                ciphertextstream = new CipherInputStream (ciphertextstream, cipher);
-            }
-            byte[] output = new byte[256];
-            int offset = 0;
-            while (true) {
-                if (offset >= output.length) {
-                    byte[] newout = new byte[output.length+256];
-                    System.arraycopy (output, 0, newout, 0, offset);
-                    output = newout;
-                }
-                int rc = ciphertextstream.read (output, offset, output.length - offset);
-                if (rc <= 0) break;
-                offset += rc;
-            }
-            if (output.length > offset) {
-                byte[] newout = new byte[offset];
-                System.arraycopy (output, 0, newout, 0, offset);
-                output = newout;
-            }
-            return output;
-        } finally {
-            ciphertextstream.close ();
-        }
-    }
-
-    public Writer EncryptedFileWriter (String path)
-            throws FileNotFoundException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        return new OutputStreamWriter (EncryptedFileOutputStream (path));
-    }
-
-    public OutputStream EncryptedFileOutputStream (String path)
-            throws FileNotFoundException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        OutputStream ciphertextstream = new FileOutputStream (path);
-        if (secretkeyspec != null) {
-            Cipher cipher = Cipher.getInstance ("AES");
-            cipher.init (Cipher.ENCRYPT_MODE, secretkeyspec);
-            ciphertextstream = new CipherOutputStream (ciphertextstream, cipher);
-        }
-        return ciphertextstream;
-    }
-
-
-    private byte[] ReadEncryptedFileBytesOrNull (String path)
-            throws IOException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        if (!new File (path).exists ()) return null;
-        return ReadEncryptedFileBytes (path);
-    }
-
-    public void WriteEncryptedFileBytes (String path, byte[] data)
-            throws IOException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        OutputStream ciphertext = EncryptedFileOutputStream (path);
-        ciphertext.write (data);
-        ciphertext.close ();
-    }
-
     /***************\
      *  Utilities  *
     \***************/
 
-    public static final DialogInterface.OnClickListener NullCancelListener = new DialogInterface.OnClickListener () {
-        @Override
-        public void onClick (DialogInterface dialogInterface, int i)
-        { }
-    };
+    /**
+     * Display an error alert dialog box, or really just anything that just
+     * needs a simple OK button and doesn't need to wait for a response.
+     */
+    public void ErrorAlert (String title, String message)
+    {
+        AlertDialog.Builder ab = new AlertDialog.Builder (this);
+        ab.setTitle (title);
+        ab.setMessage (message);
+        ab.setPositiveButton ("OK", null);
+        ab.show ();
+    }
 
     /**
-     * Set Unix-like permissions on a file.
+     * Get exception message for dialog boxes etc.
      */
-    //public static int ChMod (String path, int mode)
-    //        throws Exception
-    //{
-    //    Class fileUtils = Class.forName ("android.os.FileUtils");
-    //    Method setPermissions = fileUtils.getMethod ("setPermissions", String.class, int.class, int.class, int.class);
-    //    return (Integer) setPermissions.invoke (null, path, mode, -1, -1);
-    //}
-
-    public static void RenameTempToPerm (String permname)
-            throws IOException
+    public static String GetExMsg (Throwable e)
     {
-        if (!new File (permname + ".tmp").renameTo (new File (permname))) {
-            throw new IOException ("error renaming " + permname + ".tmp to " + permname);
+        String msg = e.getClass ().getSimpleName ();
+        String txt = e.getMessage ();
+        if ((txt != null) && !txt.equals ("")) msg += ": " + txt;
+        return msg;
+    }
+
+    /**
+     * Get directory on local filesystem for temp files.
+     */
+    public FileIFile GetLocalDir ()
+    {
+        File lcldir = getExternalCacheDir ();
+        if (lcldir == null) lcldir = getCacheDir ();
+        return new FileIFile (lcldir);
+    }
+
+    /**
+     * Make beep sound.
+     */
+    public static void MakeBeepSound ()
+    {
+        try {
+            // requires VIBRATE permission
+            //Vibrator vib = (Vibrator)getSystemService (Activity.VIBRATOR_SERVICE);
+            //vib.vibrate (200);
+
+            ToneGenerator tg = new ToneGenerator (AudioManager.STREAM_NOTIFICATION, 100);
+            tg.startTone (ToneGenerator.TONE_PROP_BEEP);
+        } catch (Exception e) {
+            // sometimes ToneGenerator throws RuntimeException: 'Init failed'
+            Log.w (TAG, "make beep sound error", e);
         }
     }
 }

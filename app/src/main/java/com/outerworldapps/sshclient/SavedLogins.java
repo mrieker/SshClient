@@ -57,7 +57,7 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
         filename = new File (sshclient.getFilesDir (), "saved_logins.enc");
         if (filename.exists ()) {
             try {
-                BufferedReader rdr = new BufferedReader (sshclient.EncryptedFileReader (filename.getPath ()), 4096);
+                BufferedReader rdr = new BufferedReader (sshclient.getMasterPassword ().EncryptedFileReader (filename.getPath ()), 4096);
                 try {
                     String rec;
                     while ((rec = rdr.readLine ()) != null) {
@@ -69,7 +69,7 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
                 }
             } catch (Exception e) {
                 Log.e (TAG, "error reading " + filename.getPath (), e);
-                sshclient.ErrorAlert ("Error reading saved logins", e.getMessage ());
+                sshclient.ErrorAlert ("Error reading saved logins", SshClient.GetExMsg (e));
             }
         }
     }
@@ -115,7 +115,7 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
                         SaveChanges ();
                     }
                 });
-                ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+                ab.setNegativeButton ("Cancel", null);
                 ab.show ();
             }
         };
@@ -132,7 +132,7 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
         sv.addView (llv);
 
         ab.setView (sv);
-        ab.setNegativeButton ("Cancel", SshClient.NullCancelListener);
+        ab.setNegativeButton ("Cancel", null);
         currentMenuDialog = ab.show ();
     }
 
@@ -144,7 +144,7 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
     {
         File tempname = new File (filename.getPath () + ".tmp");
         try {
-            PrintWriter wtr = new PrintWriter (sshclient.EncryptedFileWriter (tempname.getPath ()));
+            PrintWriter wtr = new PrintWriter (sshclient.getMasterPassword ().EncryptedFileWriter (tempname.getPath ()));
             try {
                 for (SavedLogin sh : values ()) {
                     wtr.println (sh.getRecord ());
@@ -157,7 +157,7 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
             }
         } catch (Exception e) {
             Log.e (TAG, "error writing " + filename.getPath (), e);
-            sshclient.ErrorAlert ("Error writing saved logins", e.getMessage ());
+            sshclient.ErrorAlert ("Error writing saved logins", SshClient.GetExMsg (e));
         }
         autocompleteadapter = null;
         for (MySession s : sshclient.getAllsessions ()) {
