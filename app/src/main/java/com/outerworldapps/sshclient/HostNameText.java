@@ -30,16 +30,21 @@ package com.outerworldapps.sshclient;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.SystemClock;
+import android.text.Editable;
 import android.text.InputType;
 import android.text.method.KeyListener;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
+import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
-public class HostNameText extends AutoCompleteTextView
-        implements TextView.OnEditorActionListener, View.OnFocusChangeListener {
+public class HostNameText extends LinearLayout
+        implements View.OnClickListener, TextView.OnEditorActionListener, View.OnFocusChangeListener {
 
     public static final int HIDE_TOPBAR_MS = 5000;
 
@@ -49,6 +54,8 @@ public class HostNameText extends AutoCompleteTextView
     public final static int ST_ONHIDE = 3;  // connected and online, but this view hidden
     public final static int ST_DISCO  = 4;  // disconnected
 
+    private AutoCompleteTextView actv;
+    private Button okbut;
     private int state = ST_ENTER;
     private KeyListener normalKeyListener;
     private long hideUptimeMillis = Long.MAX_VALUE;
@@ -62,17 +69,45 @@ public class HostNameText extends AutoCompleteTextView
         session   = ms;
         sshclient = ms.getSshClient ();
 
-        setTextSize (SshClient.UNIFORM_TEXT_SIZE);
-        setTypeface (Typeface.MONOSPACE);
-        setSingleLine (true);
-        setThreshold (0);  // still requires user to enter one char
-        setHorizontallyScrolling (true);
-        setOnEditorActionListener (this);
-        setOnFocusChangeListener (this);
-        setHint ("user@host[:port]");
-        normalKeyListener = getKeyListener ();
-        setAdapter (sshclient.getSavedlogins ().GetAutoCompleteAdapter ());
+        okbut = new Button (ms.getSshClient ());
+        okbut.setText ("OK");
+        okbut.setEnabled (false);
+        okbut.setOnClickListener (this);
+        okbut.setLayoutParams (new LayoutParams (ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        actv = new AutoCompleteTextView (ms.getSshClient ());
+        actv.setTextSize (SshClient.UNIFORM_TEXT_SIZE);
+        actv.setTypeface (Typeface.MONOSPACE);
+        actv.setSingleLine (true);
+        actv.setThreshold (0);  // still requires user to enter one char
+        actv.setHorizontallyScrolling (true);
+        actv.setOnEditorActionListener (this);
+        actv.setOnFocusChangeListener (this);
+        actv.setHint ("user@host[:port]");
+        actv.setAdapter (sshclient.getSavedlogins ().GetAutoCompleteAdapter ());
+        actv.setLayoutParams (new LayoutParams (ViewGroup.LayoutParams.FILL_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        normalKeyListener = actv.getKeyListener ();
+
         SetState (ST_ENTER);
+
+        setOrientation (HORIZONTAL);
+        addView (okbut);
+        addView (actv);
+    }
+
+    public void setText (String text)
+    {
+        actv.setText (text);
+    }
+    public Editable getText ()
+    {
+        return actv.getText ();
+    }
+    public void setAdapter (ArrayAdapter<String> adapter)
+    {
+        actv.setAdapter (adapter);
     }
 
     /**
@@ -89,26 +124,29 @@ public class HostNameText extends AutoCompleteTextView
             case ST_ENTER: {
                 hideUptimeMillis = Long.MAX_VALUE;
                 setVisibility (View.VISIBLE);
-                setKeyListener (normalKeyListener);
-                setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-                setBackgroundColor (Color.WHITE);
-                setTextColor (Color.BLACK);
-                requestFocus ();
+                actv.setKeyListener (normalKeyListener);
+                actv.setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+                actv.setBackgroundColor (Color.WHITE);
+                actv.setTextColor (Color.BLACK);
+                actv.requestFocus ();
+                okbut.setEnabled (true);
                 break;
             }
             case ST_CONN: {
                 hideUptimeMillis = Long.MAX_VALUE;
                 setVisibility (View.VISIBLE);
-                setKeyListener (null);
-                setBackgroundColor (Color.BLACK);
-                setTextColor (Color.CYAN);
+                actv.setKeyListener (null);
+                actv.setBackgroundColor (Color.BLACK);
+                actv.setTextColor (Color.CYAN);
+                okbut.setEnabled (false);
                 break;
             }
             case ST_ONLINE: {
                 setVisibility (View.VISIBLE);
-                setKeyListener (null);
-                setBackgroundColor (Color.BLACK);
-                setTextColor (Color.GREEN);
+                actv.setKeyListener (null);
+                actv.setBackgroundColor (Color.BLACK);
+                actv.setTextColor (Color.GREEN);
+                okbut.setEnabled (false);
                 if (HIDE_TOPBAR_MS > 0) {
                     long oldQueued = hideUptimeMillis;
                     hideUptimeMillis = SystemClock.uptimeMillis () + HIDE_TOPBAR_MS;
@@ -119,9 +157,10 @@ public class HostNameText extends AutoCompleteTextView
                 break;
             }
             case ST_ONHIDE: {
+                okbut.setEnabled (false);
                 if (hideUptimeMillis <= SystemClock.uptimeMillis ()) {
                     setVisibility (View.GONE);
-                    setKeyListener (null);
+                    actv.setKeyListener (null);
                     hideUptimeMillis = Long.MAX_VALUE;
                 } else if (hideUptimeMillis < Long.MAX_VALUE) {
                     session.getScreendatahandler ().sendEmptyMessageAtTime (ScreenDataHandler.CONNHIDE, hideUptimeMillis);
@@ -131,10 +170,11 @@ public class HostNameText extends AutoCompleteTextView
             case ST_DISCO: {
                 hideUptimeMillis = Long.MAX_VALUE;
                 setVisibility (View.VISIBLE);
-                setKeyListener (normalKeyListener);
-                setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-                setBackgroundColor (Color.WHITE);
-                setTextColor (Color.RED);
+                actv.setKeyListener (normalKeyListener);
+                actv.setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+                actv.setBackgroundColor (Color.WHITE);
+                actv.setTextColor (Color.RED);
+                okbut.setEnabled (false);
 
                 // switch focus to screentextview so user has to click on us for focus.
                 // otherwise seems we don't get our onFocusChange() called and we get
@@ -172,5 +212,14 @@ public class HostNameText extends AutoCompleteTextView
             return true;
         }
         return false;
+    }
+
+    /**
+     * The OK button was clicked
+     */
+    @Override // OnClickListener
+    public void onClick (View v)
+    {
+        session.StartConnecting ();
     }
 }
