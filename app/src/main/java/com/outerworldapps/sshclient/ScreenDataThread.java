@@ -75,6 +75,7 @@ public class ScreenDataThread extends Thread {
 
     private boolean enabled;
     private boolean started;
+    private String ptyType;
     private volatile boolean terminated;
 
     // Not used by ScreenDataThread itself but needed
@@ -92,9 +93,10 @@ public class ScreenDataThread extends Thread {
      * If not already in shell mode, start it going.
      * Called in GUI thread.
      */
-    public void startshellmode ()
+    public void startshellmode (String pt)
     {
         synchronized (this) {
+            ptyType = pt;
             enabled = true;
             if (!started) start ();
                 else notifyAll ();
@@ -192,8 +194,8 @@ public class ScreenDataThread extends Thread {
                 screenTextBuffer.ScreenMsg ("...creating streams\n");
                 input   = new InputStreamReader  (channel.getInputStream  ());
                 output  = new OutputStreamWriter (channel.getOutputStream ());
-                screenTextBuffer.ScreenMsg ("...setting pty type 'dumb'\n");
-                channel.setPtyType ("dumb");
+                screenTextBuffer.ScreenMsg ("...setting pty type '" + ptyType + "'\n");
+                channel.setPtyType (ptyType);
                 screenTextBuffer.ScreenMsg ("...connecting shell\n");
                 channel.connect ();
                 screenTextBuffer.ScreenMsg ("...connected\n");

@@ -1,0 +1,26 @@
+
+[m [1m BOLD [m
+[m [4m UNDERLINE [m
+[m [5m BLINK [m
+[m [7m REVERSE [m
+
+[m [1;4m BOLD UNDERLINE [m
+
+[m [30;47m fg BLACK   bg WHITE [m
+[m [31;46m fg RED     bg CYAN [m
+[m [32;45m fg GREEN   bg MAGENTA [m
+[m [33;44m fg YELLOW  bg BLUE [m
+[m [34;43m fg BLUE    bg YELLOW [m
+[m [35;42m fg MAGENTA bg GREEN [m
+[m [36;41m fg CYAN    bg RED [m
+[m [37;40m fg WHITE   bg BLACK [m
+
+Here is text
+followed by something
+[2A[8Coverwritten[7Dstrike text
+[7m[Band this is the end.[m
+
+this whole line gets erased
+this line stays as is
+[2A[10C[46m[2Kand replaced with this[m
+

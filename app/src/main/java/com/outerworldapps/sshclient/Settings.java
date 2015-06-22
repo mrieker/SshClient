@@ -66,13 +66,19 @@ public class Settings {
             new String[] { "line", "box", "block", "none" }
     );
 
+    public _Radio term_type = new _Radio ("termType", "Term type",
+            0,
+            new int[] { 0, 1},
+            new String [] { "dumb", "vt100" }
+    );
+
     public _Radio txt_colors = new _Radio ("txtColors", "Text colors",
             1,
             new int[]    {  0,                1               },
             new String[] { "black-on-white", "white-on-black" }
     );
-    public final int[] fgcolors = new int[] { Color.BLACK, Color.WHITE };
-    public final int[] bgcolors = new int[] { Color.WHITE, Color.BLACK };
+    private final int[] fgcolors = new int[] { Color.BLACK, Color.WHITE };
+    private final int[] bgcolors = new int[] { Color.WHITE, Color.BLACK };
 
     public _Radio scr_orien = new _Radio ("scrOrien", "Screen orientation",
             ActivityInfo.SCREEN_ORIENTATION_USER,
@@ -210,6 +216,24 @@ public class Settings {
                 return null;
             }
         });
+    }
+
+    /**
+     * @brief Misc value retrievals.
+     */
+    public String GetTermTypeStr ()
+    {
+        return term_type.GetKey ();
+    }
+    public int GetFGColor ()
+    {
+        int i = txt_colors.GetValue ();
+        return fgcolors[i];
+    }
+    public int GetBGColor ()
+    {
+        int i = txt_colors.GetValue ();
+        return bgcolors[i];
     }
 
     /**
@@ -579,6 +603,11 @@ public class Settings {
         public int GetValue ()
         {
             return value;
+        }
+
+        public String GetKey ()
+        {
+            return keys[value];
         }
 
         public void SetValue (int val)

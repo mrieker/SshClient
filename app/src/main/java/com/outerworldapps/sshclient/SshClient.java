@@ -79,6 +79,7 @@ public class SshClient extends Activity {
     private MasterPassword masterPassword;
     private MyHostKeyRepo myhostkeyrepo;          // holds list of known hosts
     private MySession currentsession;             // session currently selected by user
+    private NetworkInterfacesView networkInterfacesView;
     private SavedLogins savedlogins;              // list of username@hostname[:portnumber] we have connected to
     private Settings settings;                    // user settable settings
     private String knownhostsfilename;            // name of file that holds known remote hosts (hosts we have the signature for)
@@ -247,13 +248,14 @@ public class SshClient extends Activity {
          * Now that we know how to read our datafiles, set everything else up...
          */
         if (knownhostsfilename == null) {
-            knownhostsfilename = new File (getFilesDir (), "known_hosts.enc").getPath ();
-            privatekeywildname = new File (getFilesDir (), "private_key_*.enc").getPath ();
-            publickeywildname  = new File (getFilesDir (), "public_key_*.enc").getPath  ();
-            savedlogins        = new SavedLogins (this);
-            settings           = new Settings (this);
-            myhostkeyrepo      = new MyHostKeyRepo (this);
-            tunnelMenu         = new TunnelMenu (this);
+            knownhostsfilename    = new File (getFilesDir (), "known_hosts.enc").getPath ();
+            privatekeywildname    = new File (getFilesDir (), "private_key_*.enc").getPath ();
+            publickeywildname     = new File (getFilesDir (), "public_key_*.enc").getPath  ();
+            savedlogins           = new SavedLogins (this);
+            settings              = new Settings (this);
+            myhostkeyrepo         = new MyHostKeyRepo (this);
+            tunnelMenu            = new TunnelMenu (this);
+            networkInterfacesView = new NetworkInterfacesView (this);
         }
 
         Log.d (TAG, "app started");
@@ -500,6 +502,11 @@ public class SshClient extends Activity {
         AddXMenuItem (xmll, "master password", new Runnable () {
             public void run () {
                 masterPassword.ShowMenu ();
+            }
+        });
+        AddXMenuItem (xmll, "network interfaces", new Runnable () {
+            public void run () {
+                networkInterfacesView.show ();
             }
         });
         AddXMenuItem (xmll, "saved logins", new Runnable () {

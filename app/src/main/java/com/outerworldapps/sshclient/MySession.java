@@ -165,6 +165,9 @@ public class MySession extends LinearLayout {
         // show the hostnametext box for a few seconds
         if (hostnametext.GetState () == HostNameText.ST_ONHIDE) {
             hostnametext.SetState (HostNameText.ST_ONLINE);
+            if (screenMode == MSM_SHELL) {
+                screentextview.requestFocus ();
+            }
         }
 
         // set up method to be called if this screen is back-buttoned to
@@ -316,6 +319,11 @@ public class MySession extends LinearLayout {
                     RebuildView ();
                     screendatathread.detstate.put ("screenMode", screenMode);
                 }
+            }
+
+            // if going to shell mode, make sure shell thread is running
+            if ((sm == MSM_SHELL) && (screendatathread != null)) {
+                screendatathread.startshellmode (sshclient.getSettings ().GetTermTypeStr ());
             }
 
             // make sure this screen is being displayed
@@ -538,7 +546,7 @@ public class MySession extends LinearLayout {
                  * Otherwise, rebuild the view contents for file transfer or tunnel mode.
                  */
                 if (screenMode == MSM_SHELL) {
-                    screendatathread.startshellmode ();
+                    screendatathread.startshellmode (sshclient.getSettings ().GetTermTypeStr ());
                 } else {
                     RebuildView ();
                 }
@@ -655,7 +663,7 @@ public class MySession extends LinearLayout {
 
                 // if in shell mode while connected, make sure the shell channel is open.
                 case MSM_SHELL: {
-                    screendatathread.startshellmode ();
+                    screendatathread.startshellmode (sshclient.getSettings ().GetTermTypeStr ());
                     break;
                 }
 
@@ -788,10 +796,7 @@ public class MySession extends LinearLayout {
         public void LoadSettings ()
         {
             Settings settings = sshclient.getSettings ();
-            int colors  = settings.txt_colors.GetValue ();
-            int fgcolor = settings.fgcolors[colors];
-            int bgcolor = settings.bgcolors[colors];
-            setFENColorsNSize (bgcolor, fgcolor, Color.GRAY, settings.font_size.GetValue ());
+            setFENColorsNSize (Color.BLACK, Color.WHITE, Color.GRAY, settings.font_size.GetValue ());
         }
     }
 }

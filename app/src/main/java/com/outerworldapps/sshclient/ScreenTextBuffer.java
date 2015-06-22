@@ -35,6 +35,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.graphics.Color;
 import android.util.Log;
 
 public class ScreenTextBuffer {
@@ -46,6 +47,7 @@ public class ScreenTextBuffer {
     public int twb;                 // base of all other indices
     public int twm;                 // twt.length - 1 (always power-of-two - 1)
     public int tws;                 // twt.length (always power-of-two)
+    public short[] twa;             // theWholeAttr array ring buffer
 
     public boolean needToRender;    // next onDraw() needs to create theWholeText->visibleLine{Beg,End}s{} mapping
     public int renderCursor;        // next onDraw() needs to adjust scrolling to make this cursor visible
@@ -56,6 +58,34 @@ public class ScreenTextBuffer {
     public  int scrolledLinesDown;  // number of lines we are shifted down
     public  int theWholeUsed;       // amount in theWholeText that is occupied starting at twb
     private Runnable notify;        // what to notify when there are changes
+
+    private static final short C_BLACK   = 0;
+    private static final short C_RED     = 1;
+    private static final short C_GREEN   = 2;
+    private static final short C_YELLOW  = 3;
+    private static final short C_BLUE    = 4;
+    private static final short C_MAGENTA = 5;
+    private static final short C_CYAN    = 6;
+    private static final short C_WHITE   = 7;
+
+    public static final short TWA_BOLD  =   1;
+    public static final short TWA_UNDER =   2;
+    public static final short TWA_BLINK =   4;
+    public static final short TWA_REVER =   8;
+    public static final short TWA_BGCLR =  16 * 7;
+    public static final short TWA_FGCLR = 128 * 7;
+
+    public static final short RESET_ATTRS = (TWA_FGCLR & -TWA_FGCLR) * C_WHITE + (TWA_BGCLR & -TWA_BGCLR) * C_BLACK;
+
+    private static final int ESCSEQMAX = 32;
+
+    public final static int[] colorTable = new int[] {
+            Color.BLACK, Color.RED, Color.GREEN, Color.YELLOW,
+            Color.BLUE, Color.MAGENTA, Color.CYAN, Color.WHITE };
+
+    private final char[] escseqbuf = new char[ESCSEQMAX];
+    private int escseqidx = -1;
+    public  short attrs = RESET_ATTRS;
 
     /**
      * Set what screen the text is being displayed on so
@@ -91,13 +121,15 @@ public class ScreenTextBuffer {
 
             // realloc the array if rounded-up size different
             if (newtws != tws) {
-                char[] newtwt = new char[newtws];
+                char[] newtwt  = new char[newtws];
+                short[] newtwa = new short[newtws];
 
                 int newtwm = newtws - 1;                   // bitmask for wrapping indices
                 int newtwu = 0;                            // no array elements used yet
                 int newtwb = 0;                            // start of used elements is beginning of array
                 for (int i = 0; i < theWholeUsed; i ++) {  // step through each used char in old array
                     newtwt[(newtwb+newtwu)&newtwm] = twt[(twb+i)&twm];
+                    newtwa[(newtwb+newtwu)&newtwm] = twa[(twb+i)&twm];
                     if (newtwu < newtws) newtwu ++;        // if not yet full, it has one more char now
                     else newtwb = (newtwb + 1) & newtwm;   // otherwise, old char on front was overwritten
                 }
@@ -106,6 +138,7 @@ public class ScreenTextBuffer {
                 if (insertpoint < 0) insertpoint = 0;
 
                 twt = newtwt;
+                twa = newtwa;
                 twb = newtwb;
                 twm = newtwm;
                 tws = newtws;
@@ -252,81 +285,395 @@ public class ScreenTextBuffer {
         // and newline characters.
         for (int i = beg; i < end; i ++) {
             char ch = buf[i];
-            if ((int)ch < 32) {
 
-                // process the control character
-                switch ((int)ch) {
+            // any control character aborts escape sequence
+            if (ch < 32) escseqidx = -1;
 
-                    // bell
-                    case 7: {
-                        SshClient.MakeBeepSound ();
-                        continue;
-                    }
+            // if not doing an escape sequence, store char in ring buffer
+            if (escseqidx < 0) {
+                Printable (ch);
+            } else {
 
-                    // backspace: back up the insertion point one character,
-                    // but not before beginning of current line
-                    // has to work as part of BS/' '/BS sequence to delete last char on line
-                    case 8: {
-                        if (insertpoint > 0) {
-                            ch = twt[(twb+insertpoint-1)&twm];
-                            if (ch != '\n') {
-                                if ((ch == ' ') && (insertpoint == theWholeUsed)) {
-                                    -- theWholeUsed;
-                                }
-                                -- insertpoint;
-                            }
-                        }
-                        continue;
-                    }
+                // doing escape sequence, store char on end of escape buffer
+                if (escseqidx < ESCSEQMAX) escseqbuf[escseqidx++] = ch;
 
-                    // tab: space to next 8-character position in line
-                    case 9: {
-                        int k;
-                        for (k = insertpoint; k > 0; -- k) {
-                            if (twt[(twb+k-1)&twm] == '\n') break;
-                        }
-                        k = (insertpoint - k) % 8;
-                        IncomingWork (eightspaces, 0, 8 - k);
-                        continue;
-                    }
-
-                    // newline (linefeed): advance insertion point to end of text and append newline
-                    // also reset horizontal scrolling in case a prompt is incoming next
-                    // has to work as part of CR/LF sequence
-                    case 10: {
-                        insertpoint = theWholeUsed;
-                        scrolledCharsLeft = 0;
-                        break;
-                    }
-
-                    // carriage return: backspace to just after most recent newline
-                    // has to work as part of CR/LF sequence
-                    case 13: {
-                        while (insertpoint > 0) {
-                            ch = twt[(twb+insertpoint-1)&twm];
-                            if (ch == '\n') break;
-                            -- insertpoint;
-                        }
-                        scrolledCharsLeft = 0;
-                        continue;
-                    }
-
-                    // who knows - ignore all other control characters
-                    default: {
-                        Log.d (TAG, "ignoring incoming " + (int) ch);
-                        continue;
-                    }
+                // process the sequence if end of escape sequence
+                if (escseqbuf[0] != '[') {
+                    if (ch >= 48) Escaped ();
+                } else {
+                    if ((ch >= 64) && (escseqidx > 1)) Escaped ();
                 }
             }
+        }
+    }
 
-            twt[(twb+insertpoint)&twm] = ch;    // store char at insert point
-            if (insertpoint < theWholeUsed) {   // if we are overwriting stuff on the existing line,
-                insertpoint ++;                 //     (ie it has been BS/CR'd), just inc index
-            } else if (theWholeUsed < tws) {    // append, if array hasn't been filled yet,
-                theWholeUsed = ++ insertpoint;  //     extend it by one character
-            } else {                            // otherwise, we just overwrote the oldest char in ring,
-                twb = (twb + 1) & twm;          //     increment index base
+    private void Printable (char ch)
+    {
+        if (ch >= 32) {
+            InsertPrintableAtInsertPoint (ch, attrs);
+        } else {
+
+            // process the control character
+            switch (ch) {
+
+                // bell
+                case 7: {
+                    SshClient.MakeBeepSound ();
+                    break;
+                }
+
+                // backspace: back up the insertion point one character,
+                // but not before beginning of current line
+                // has to work as part of BS/' '/BS sequence to delete last char on line
+                case 8: {
+                    if (insertpoint > 0) {
+                        ch = twt[(twb+insertpoint-1)&twm];
+                        if (ch != '\n') {
+                            if ((ch == ' ') && (insertpoint == theWholeUsed)) {
+                                -- theWholeUsed;
+                            }
+                            -- insertpoint;
+                        }
+                    }
+                    break;
+                }
+
+                // tab: space to next 8-character position in line
+                case 9: {
+                    int k;
+                    for (k = insertpoint; k > 0; -- k) {
+                        if (twt[(twb+k-1)&twm] == '\n') break;
+                    }
+                    k = (insertpoint - k) % 8;
+                    IncomingWork (eightspaces, 0, 8 - k);
+                    break;
+                }
+
+                // newline (linefeed): advance insertion point to end of line and append newline
+                // also reset horizontal scrolling in case a prompt is incoming next
+                // has to work as part of CR/LF sequence
+                case 10:    // line feed
+                case 11:    // vertical tab
+                case 12: {  // form feed
+                    while (insertpoint < theWholeUsed) {
+                        if (twt[(twb+insertpoint)&twm] == '\n') break;
+                        insertpoint ++;
+                    }
+                    if (insertpoint < theWholeUsed) {
+                        insertpoint ++;
+                    } else {
+                        OverwriteSomethingAtInsertPoint ('\n', attrs);
+                    }
+                    scrolledCharsLeft = 0;
+                    break;
+                }
+
+                // carriage return: backspace to just after most recent newline
+                // has to work as part of CR/LF sequence
+                case 13: {
+                    while (insertpoint > 0) {
+                        ch = twt[(twb+insertpoint-1)&twm];
+                        if (ch == '\n') break;
+                        -- insertpoint;
+                    }
+                    scrolledCharsLeft = 0;
+                    break;
+                }
+
+                // start an escape sequence
+                case 27: {
+                    escseqidx = 0;
+                    break;
+                }
+
+                // who knows - ignore all other control characters
+                default: {
+                    Log.d (TAG, "ignoring incoming " + (int) ch);
+                    break;
+                }
             }
         }
+    }
+
+    // oz_dev_vgavideo_486.c escseqend()
+    private void Escaped ()
+    {
+        String escseqstr = new String (escseqbuf, 0, escseqidx);
+        //Log.d (TAG, "escape seq '" + escseqstr + "'");
+
+        char termchr = escseqbuf[--escseqidx];
+        escseqbuf[escseqidx] = 0;
+        escseqidx = -1;
+
+        if (escseqbuf[0] != '[') {
+            Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
+        } else {
+            switch (termchr) {
+
+                // [ A - move cursor up
+                case 'A': {
+                    int nlines = EscSeqInt (escseqbuf, 1);
+                    // move temp cursor to beginning of current line
+                    int cur = insertpoint;
+                    while ((cur > 0) && (twt[(twb+cur-1)&twm] != '\n')) -- cur;
+                    // compute the column number it was in
+                    int col = insertpoint - cur;
+                    // move temp cursor backward to beginning of target line
+                    while (cur > 0) {
+                        do -- cur;
+                        while ((cur > 0) && (twt[(twb+cur-1)&twm] != '\n'));
+                        if (-- nlines <= 0) break;
+                    }
+                    // now move it over the original number of columns
+                    insertpoint = cur;
+                    while (-- col >= 0) {
+                        if (twt[(twb+insertpoint)&twm] == '\n') {
+                            InsertPrintableAtInsertPoint (' ', twa[(twb+insertpoint)&twm]);
+                        } else {
+                            insertpoint ++;
+                        }
+                    }
+                    break;
+                }
+
+                // [ B - move cursor down
+                case 'B': {
+                    int nlines = EscSeqInt (escseqbuf, 1);
+                    // move temp cursor to beginning of current line
+                    int cur = insertpoint;
+                    while ((cur > 0) && (twt[(twb+cur-1)&twm] != '\n')) -- cur;
+                    // compute the column number it was in
+                    int col = insertpoint - cur;
+                    // move cursor forward to beginning of target line
+                    insertpoint = cur;
+                    while (cur < theWholeUsed) {
+                        do cur ++;
+                        while ((cur < theWholeUsed) && (twt[(twb+cur-1)&twm] != '\n'));
+                        if (twt[(twb+cur-1)&twm] != '\n') break;
+                        insertpoint = cur;
+                        if (-- nlines <= 0) break;
+                    }
+                    // now move it over the original number of columns
+                    while (-- col >= 0) {
+                        if (twt[(twb+insertpoint)&twm] == '\n') {
+                            InsertPrintableAtInsertPoint (' ', twa[(twb+insertpoint)&twm]);
+                        } else {
+                            insertpoint ++;
+                        }
+                    }
+                    break;
+                }
+
+                // [ C - move cursor right
+                case 'C': {
+                    int nchars = EscSeqInt (escseqbuf, 1);
+                    do {
+                        if ((insertpoint >= theWholeUsed) || (twt[(twb+insertpoint)&twm] == '\n')) {
+                            InsertPrintableAtInsertPoint (' ', twa[(twb+insertpoint)&twm]);
+                        } else {
+                            insertpoint ++;
+                        }
+                    } while (-- nchars > 0);
+                    break;
+                }
+
+                // [ D - move cursor left
+                case 'D': {
+                    int nchars = EscSeqInt (escseqbuf, 1);
+                    do {
+                        if ((insertpoint > 0) && (twt[(twb+insertpoint-1)&twm] != '\n')) {
+                            -- insertpoint;
+                        }
+                    } while (-- nchars > 0);
+                    break;
+                }
+
+                // [ K - erase in line
+                case 'K': {
+                    int code = EscSeqInt (escseqbuf, 1);
+
+                    // 0 or 2 : erase characters to end-of-line
+                    //     delete chars starting with cursor up to next newline
+                    //     but always leave the next newline intact
+                    if ((code == 0) || (code == 2)) {
+                        int i;
+                        for (i = 0; i + insertpoint < theWholeUsed; i ++) {
+                            if (twt[(twb+insertpoint+i)&twm] == '\n') break;
+                        }
+                        DeleteCharsAtInsertPoint (i);
+
+                        // set attrs of preceding newline so ScreenTextView knows what
+                        // background color to pad the remainder of this line with
+                        for (i = insertpoint; -- i >= 0;) {
+                            if (twt[(twb+i)&twm] == '\n') {
+                                twa[(twb+i)&twm] = attrs;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 1 or 2 : erase characters up to and including cursor char
+                    //     replace them with spaces of current attributes
+                    if ((code == 1) || (code == 2)) {
+                        int i = insertpoint;
+                        if ((i >= 0) && (twt[(twb+i)&twm] != '\n')) i ++;
+                        while (-- i >= 0) {
+                            if (twt[(twb+i)&twm] == '\n') break;
+                            twt[(twb+i)&twm] = ' ';
+                            twa[(twb+i)&twm] = attrs;
+                        }
+                    }
+                    break;
+                }
+
+                // [ m - select graphic rendition
+                case 'm': {
+                    for (int i = 0; escseqbuf[i] != 0;) {
+                        char c;
+                        int n = 0;
+                        while (((c = escseqbuf[++i]) >= '0') && (c <= '7')) {
+                            n = n * 8 + c - '0';
+                        }
+                        switch (n) {
+                            case 0: {
+                                attrs = RESET_ATTRS;
+                                break;
+                            }
+                            case 1: {
+                                attrs |= TWA_BOLD;
+                                break;
+                            }
+                            case 4: {
+                                attrs |= TWA_UNDER;
+                                break;
+                            }
+                            case 5: {
+                                attrs |= TWA_BLINK;
+                                break;
+                            }
+                            case 7: {
+                                attrs |= TWA_REVER;
+                                break;
+                            }
+                            case 030:case 031:case 032:case 033:case 034:case 035:case 036:case 037: {
+                                attrs &= ~TWA_FGCLR;
+                                attrs |= (TWA_FGCLR & -TWA_FGCLR) * (n - 030);
+                                break;
+                            }
+                            case 040:case 041:case 042:case 043:case 044:case 045:case 046:case 047: {
+                                attrs &= ~TWA_BGCLR;
+                                attrs |= (TWA_BGCLR & -TWA_BGCLR) * (n - 040);
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+
+                default: {
+                    Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
+                    break;
+                }
+            }
+        }
+    }
+
+    private static int EscSeqInt (char[] escseqbuf, int offset)
+    {
+        int n = 0;
+        char c;
+        while (((c = escseqbuf[offset++]) >= '0') && (c <= '9')) n = n * 10 + c - '0';
+        return n;
+    }
+
+    /**
+     * @brief Insert a printable character at the cursor position and increment cursor.
+     * @param ch = character to store
+     * @param at = corresponding attributes
+     */
+    private void InsertPrintableAtInsertPoint (char ch, short at)
+    {
+        // the only time we really do an insert is if we would overwrite a newline
+        if ((insertpoint < theWholeUsed) && (twt[(twb+insertpoint)&twm] == '\n')) {
+
+            // if the ring buffer is completely full, remove the oldest char
+            if (theWholeUsed >= tws) {
+
+                // pop oldest char by incrementing base index
+                twb = (twb + 1) & twm;
+
+                // now there is one fewer character in ring
+                -- theWholeUsed;
+
+                // if the new char was going where the old one was popped,
+                // we're done as is cuz we just popped the new char too
+                if (insertpoint <= 0) return;
+
+                // somewhere farther down in ring, point to same char in ring
+                -- insertpoint;
+            }
+
+            // move everything starting with the newline down one spot to make room
+            for (int i = ++ theWholeUsed; -- i > insertpoint;) {
+                twt[(twb+i)&twm] = twt[(twb+i-1)&twm];
+                twa[(twb+i)&twm] = twa[(twb+i-1)&twm];
+            }
+
+            // overwrite the newline with the new character and attributes
+            twt[(twb+insertpoint)&twm] = ch;
+            twa[(twb+insertpoint)&twm] = at;
+
+            // advance cursor past new character
+            insertpoint ++;
+        } else {
+
+            // overwrite existing printable with another printable
+            // we might also be extending onto end of ring buffer
+            OverwriteSomethingAtInsertPoint (ch, at);
+        }
+    }
+
+    /**
+     * @brief Overwrite the character at the insert point.
+     *        But if at end of ring buffer, extend ring one char.
+     * @param ch = character to store
+     * @param at = corresponding attributes
+     */
+    private void OverwriteSomethingAtInsertPoint (char ch, short at)
+    {
+        int index  = (twb + insertpoint) & twm;
+        twt[index] = ch;                    // store char at insert point
+        twa[index] = at;                    // ...along with current attributes
+        if (insertpoint < theWholeUsed) {   // if we are overwriting stuff on the existing line,
+            insertpoint ++;                 //     (eg, it has been BS/CR'd), just inc index
+        } else if (theWholeUsed < tws) {    // append, if array hasn't been filled yet,
+            theWholeUsed = ++ insertpoint;  //     extend it by one character
+        } else {                            // otherwise, we just overwrote the oldest char in ring,
+            twb = (twb + 1) & twm;          //     increment index base
+        }
+    }
+
+    /**
+     * @brief Delete the given number of characters starting at the insert point.
+     */
+    private void DeleteCharsAtInsertPoint (int nch)
+    {
+        if (nch > 0) {
+            theWholeUsed -= nch;
+            int twu = theWholeUsed;
+            for (int i = insertpoint; i < twu; i ++) {
+                twt[(twb+i)&twm] = twt[(twb+i+nch)&twm];
+                twa[(twb+i)&twm] = twa[(twb+i+nch)&twm];
+            }
+        }
+    }
+
+    public static int BGColor (int at)
+    {
+        return colorTable[(at&ScreenTextBuffer.TWA_BGCLR)/(ScreenTextBuffer.TWA_BGCLR&-ScreenTextBuffer.TWA_BGCLR)];
+    }
+    public static int FGColor (int at)
+    {
+        return colorTable[(at&ScreenTextBuffer.TWA_FGCLR)/(ScreenTextBuffer.TWA_FGCLR&-ScreenTextBuffer.TWA_FGCLR)];
     }
 }
