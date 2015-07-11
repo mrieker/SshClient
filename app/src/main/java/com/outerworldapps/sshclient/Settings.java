@@ -55,6 +55,7 @@ public class Settings {
      */
     public _Bool incl_hid   = new _Bool ("inclHidden", "Include hidden files", false);
     public _Bool show_eols  = new _Bool ("showEOLs",   "Show EOL markers",     false);
+    public _Bool vt100_kbd  = new _Bool ("vt100KB",    "VT-100 keyboard",      false);
     public _Bool wrap_lines = new _Bool ("wrapLines",  "Wrap long lines",      true);
 
     public _FontSize font_size = new _FontSize ("fontSize", "Font size", 20, TEXT_SIZE_MIN, TEXT_SIZE_MAX);
@@ -219,7 +220,7 @@ public class Settings {
     }
 
     /**
-     * @brief Misc value retrievals.
+     * Misc value retrievals.
      */
     public String GetTermTypeStr ()
     {
@@ -326,7 +327,6 @@ public class Settings {
 
     // font size setting
     public class _FontSize extends _Value {
-        private EditText txt;
         private int value, temp, min, max;
 
         public _FontSize (String name, String label, int value, int min, int max)

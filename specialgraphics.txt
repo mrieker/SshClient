@@ -1,0 +1,34 @@
+
+0137   95  <_>  open block
+0140   96  <`>  solid diamond
+0141   97  <a>  checkerboard block
+0142   98  <b>  H/T
+0143   99  <c>  F/F
+0144  100  <d>  C/R
+0145  101  <e>  L/F
+0146  102  <f>  degree symbol
+0147  103  <g>  plus/minus
+0150  104  <h>  N/L
+0151  105  <i>  V/T
+0152  106  <j>  upper left corner
+0153  107  <k>  lower left corner
+0154  108  <l>  lower right corner
+0155  109  <m>  upper right corner
+0156  110  <n>  cross
+0157  111  <o>  top row line
+0160  112  <p>  mid top row line
+0161  113  <q>  middle row line
+0162  114  <r>  mid bottom row line
+0163  115  <s>  bottom row line
+0164  116  <t>  
+0165  117  <u>  
+0166  118  <v>  
+0167  119  <w>  
+0170  120  <x>  
+0171  121  <y>  less than / equal
+0172  122  <z>  greater than / equal
+0173  123  <{>  pi
+0174  124  <|>  not equal
+0175  125  <}>  british pounds
+0176  126  <~>  center dot
+

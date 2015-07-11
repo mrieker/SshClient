@@ -1,0 +1,118 @@
+<HTML><BODY>
+<H3>FILE TRANSFER Screen</H3>
+<P>This screen is used to transfer files between the local device and the current session's remote host.  It
+    has these four sections from top to bottom:
+<UL>
+    <LI><B>function buttons</B> - switch between local and remote, initiates functions on selected file</LI>
+    <LI><B>selected files</B> - list of files that have been selected</LI>
+    <LI><B>navigation buttons</B> - select which directory on either local or remote to look at</LI>
+    <LI><B>directory listing</B> - list of the files in the directory selected by the navigation
+        buttons</LI>
+</UL>
+Notes:
+<UL>
+    <LI>Each of the four sections independently scrolls horizontally.</LI>
+    <LI>You can access a local-files-only version that does not require connection to a remote host by
+        clicking on the Android's menu button, then clicking <TT>More</TT> then <TT>local files
+            only</TT>.</LI>
+</UL>
+</P>
+
+<P>Various function buttons may appear on the top row depending on the state of the app.
+    Here are the possibilities, in the order they appear:
+<UL>
+    <LI><B>remote &lt;</B> - navigate directories on the remote host</LI>
+    <LI><B>search</B> - search directories for a wildcard pattern</LI>
+    <LI><B>make dir</B> - create a sub-directory (must currently be in a writable directory)</LI>
+    <LI><B>clear</B> - clear list of selected files (must have something selected)</LI>
+    <LI><B>copy</B> - copy selected files to the current directory (all selected files must be readable,
+        the current directory must be writable)</LI>
+    <LI><B>move</B> - move selected files to the current directory (all selected files must be readable and
+        in writable directories, and the current directory must be writable)</LI>
+    <LI><B>delete</B> - delete the selected files (files must be in the current directory and the current
+        directory must be writable, ie, you can delete files only from the current directory)</LI>
+    <LI><B>open</B> - open the one-and-only selected readable file</LI>
+    <LI><B>opendir</B> - open the last selected file as a directory (assuming it is a readable directory)
+        OR open the last selected zip file as a read-only directory (assuming it is a readable zip
+        file)</LI>
+    <LI><B>&gt; local</B> - navigate directories on the local device</LI>
+</UL>
+<UL>
+    <LI>The <TT>local files only</TT> version, accessed via the Android's menu, provides <B>local-1</B> and
+        <B>local-2</B> buttons which give two independent views of local files (instead of <B>remote</B>
+        and <B>local</B> buttons which give a view of remote files and a view of local files).</LI>
+</UL>
+</P>
+
+<P>The next row contains navigation buttons that can be used to 'pop up' levels in the directory hierarchy.
+    If a button has black text, indicating a read-only directory, you can only view the directory, you cannot
+    make changes.  If a button is red, indicating a read/write directory, you can both view the directory and
+    make changes (add, delete, rename files).  Also, eg, on Android, it is possible for you to not have
+    permission to view at an intermediate directory.  If this is the case, those intermediate directories will
+    have their names combined with a viewable directory, eg, <TT>data/data/com.outerworldapps.sshclient/</TT>
+    all on one button means you can't view either <TT>data</TT> directory, but you can view the
+    <TT>com.outerworldapps.sshclient</TT> directory.</P>
+<P>Clicking on the last button in the row (which indicates the directory currently being displayed), refreshes
+    the listing by re-reading it.  <I>Changes made in one view of a filesystem will not appear in other views
+        of the same filesystem, so use this functionality to display any recent updates.</I></P>
+<P>To descend into a readable directory, click on it in the list (which causes it to highlight) then click the
+    <TT>opendir</TT> button.  The <TT>opendir</TT> button can also navigate into a readable zip file as if it
+    were a read-only directory.  Some patience may be required if the directory or zip file is large.</P>
+
+<P>To copy file(s) (and/or directory tree(s)):
+<OL>
+    <LI>Select a file or directory tree to be copied by clicking on its name in the listing.  Its name
+        highlights in the directory listing and the name will also be added to the list of selected files
+        at the top of the screen.  If you have permission to read it, the <TT>copy</TT> button will
+        appear.</LI>
+    <LI>To select a range of files, select the first file of the range by clicking on the name, then select
+        the last file of the range by double-clicking on the name.</LI>
+    <LI>To deselect a file, click the highlighted name.  To deselect all files, click the <TT>clear</TT>
+        button at the top.</LI>
+    <LI>Repeat that step for all files and/or directory trees you want to copy.  You can navigate around
+        directories to locate all you want.</LI>
+    <LI>Navigate to the directory where you want to copy the file(s).  You may copy them to the same
+        directory you are already in if you like.  Usually though you want to navigate to a directory on
+        the other system (local vs remote).</LI>
+    <LI>Click the <TT>copy</TT> button.  It will prompt you to confirm the copy, allowing you to change the
+        name if you like, then perform the copy.  You can cancel a long copy by clicking the
+        <TT>Cancel</TT> button when the progress box is showing.</LI>
+</OL>
+</P>
+<P>Notes:
+<UL>
+    <LI>There is no restriction on local vs remote for the copy operation.  <I>However,</I> if you do a
+        remote-to-remote copy, the data will transfer from the remote host to the phone then back to the
+        remote host which is very inefficient.  You are much better off using the shell to perform such a
+        copy for files of any significant size.</LI>
+    <LI>When a file is copied to the Android device, Android considers the file as being owned by the
+        SshClient app.  To make it accessible to other apps, you should put it somewhere on the SD card
+        storage, which is where the app puts you by default.  Similarly, you can only copy files from the
+        Android device that the SshClient app has access to, which is typically just its own files, the
+        files on the SD card storage, plus some read-only system files.</LI>
+    <LI>While a copy is going (such as for a large file), the app will block you from accessing the same
+        session's shell and tunnels screens, because the TCP connection is being heavily used for the copy
+        and may not allow access to the other streams.  You can pause the copy and access the other streams
+        or start another session to the same host to access shell and tunnel while the copy is
+        running.</LI>
+    <LI>Similarly, while a copy is going, you will be blocked from using the BACK button, in which case you
+        can pause or cancel the copy, then use the BACK button.</LI>
+    <LI>Pressing the HOME button while a copy is running lets the copy continue in the background, even if
+        Android decides it needs the memory and kills the app, as the service will keep it going.</LI>
+</UL>
+</P>
+
+<P>To move file(s) (or directory tree(s)), perform the same steps as for copying, except use the <TT>move</TT>
+    button instead of <TT>copy</TT>.  Note that moving a file to the same directory with a different name is a
+    rename operation.  Moving a file between the local and remote system involves a copy operation followed by
+    a delete.</P>
+
+<P>The <TT>open</TT> button will attempt to open the highlighted file if it is readable.  If it is a file on
+    the local filesystem, a search is made for an application that can read the file and it is launched.  If
+    the file is on the remote host, the file is first copied to a local temporary file directory (called cache
+    on Android), then an application is launched.  You may want to either delete or move the file from the
+    cache directory when done with it.  Note that the file must also be readable to the application being used
+    to display it, which will be the case for files on the SD card.</P>
+
+<P><A HREF="help.html">(top)</A></P>
+</BODY></HTML>

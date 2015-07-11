@@ -1,0 +1,22 @@
+<HTML><BODY>
+<H3>TUNNELS Screen</H3>
+<P>SSH tunnels can forward TCP connections on either the local or remote host over to the other host.</P>
+<P>This screen has one button per tunnel defined in the database.  If the button has black text, the tunnel is
+    closed and a short click will open or edit it.  If the button has red text, the tunnel is open and a short
+    click will close it.  In either state, a long click will delete it from the database, closing it first if
+    it is open.</P>
+<P>You must already be connected to a remote host for the TUNNELS screen to display.  If you attempt to display
+    it before connecting, the opening will be pending until you connect, and then the TUNNELS screen will open.
+    You can also switch to a different screen within the app or press the HOME button at any time and your open
+    tunnels will remain open (until Android decides it needs the memory for something else, that is).</P>
+<P><B>Local =&gt; Remote</B> - connections to a port on the local Android device are forwarded to the port on
+    the remote host, encrypted over the SSH connection.  If you put 0 for the listening port number, an unused
+    port is picked for you each time the tunnel is opened.  Anyway, any connection made on the Android device
+    to the tunnel's listen port are forwarded over the SSH link to the session's remote host, then it is
+    connected to the tunnel's connection hostname:portnumber.</P>
+<P><B>Local &lt;= Remote</B> - connections to a port on the remote host are forwarded to the port on the local
+    Android device, encrypted over the SSH connection.  You must specify a specific listening port (1..65535).
+    Any connection made to the tunnel's listen port on the remote host are forwarded over the SSH link back to
+    the Android device then it is connected to the tunnel's connection hostname:portnumber.</P>
+<P><A HREF="help.html">(top)</A></P>
+</BODY></HTML>

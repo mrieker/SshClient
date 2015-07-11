@@ -56,14 +56,19 @@ import android.text.TextWatcher;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
+import android.widget.HorizontalScrollView;
+import android.widget.LinearLayout;
 
 import com.jcraft.jsch.ChannelShell;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class ScreenTextView extends EditText
-        implements TextWatcher {
+public class ScreenTextView extends LinearLayout implements View.OnFocusChangeListener {
     public static final String TAG = "SshClient";
 
     public static final int CURSOR_HALFCYCLE_MS = 512;
@@ -71,7 +76,6 @@ public class ScreenTextView extends EditText
     private AtomicBoolean invalTextImmPend = new AtomicBoolean (false);
     private boolean frozen;                      // indicates frozen mode
     private boolean invalTextDelPend;
-    private boolean readingkb;                   // set when reading keyboard text buffer (to handle recursion)
     private boolean selectActive;                // the 'b' key has been pressed to begin text selection
     private float savedTextSize;                 // most recently set text size (don't trust getTextSize ())
     private int charWidthInPixels;               // width of one character
@@ -88,15 +92,13 @@ public class ScreenTextView extends EditText
     private int[] precedNewLines  = new int[1];  // offsets of preceding newlines in theWholeText
     private int[] visibleLineBegs = new int[1];  // offsets of beginning of visible lines in theWholeText
     private int[] visibleLineEnds = new int[1];  // offsets of end of visible lines in theWholeText
+    private long cursorBlinkBase;                // forces cursor on for any text change
+    private MyEditText edtx;                     // holds the text display
     private MySession session;                   // what session we are part of
-    private Paint bgpaint;                       // used to paint text background rectangles
-    private Paint fgpaint;                       // used to paint text characters
-    private Paint cursorPaint;                   // used to paint cursor
-    private Paint selectPaint;                   // background paint for selected text
-    private Paint showeolPaint;                  // paints the EOL character
     private ScreenTextBuffer screenTextBuffer;   // where we get shell screen data from
     private SshClient sshclient;                 // what activity we are part of
     private STPanning panning;                   // used for scrolling based on mouse movements
+    private HorizontalScrollView vt100kb;        // non-null means we are using VT100KBView keyboard
 
     public ScreenTextView (MySession ms, ScreenTextBuffer stb)
     {
@@ -105,28 +107,14 @@ public class ScreenTextView extends EditText
         sshclient = ms.getSshClient ();
         screenTextBuffer = stb;
 
-        bgpaint = new Paint ();
+        setOrientation (VERTICAL);
 
-        fgpaint = getPaint ();
-        setTypeface (Typeface.MONOSPACE);
-        fgpaint.setStyle (Paint.Style.FILL_AND_STROKE);
-
-        setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        setSingleLine (false);
-        setHorizontallyScrolling (false);
+        edtx = new MyEditText ();
+        edtx.setLayoutParams (new LinearLayout.LayoutParams (ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, 1.0F));
+        edtx.setOnFocusChangeListener (this);
         LoadSettings ();
-        addTextChangedListener (this);
 
         panning = new STPanning (sshclient);
-
-        cursorPaint = new Paint ();
-
-        selectPaint = new Paint ();
-        selectPaint.setColor (Color.GRAY);
-        selectPaint.setStyle (Paint.Style.FILL);
-
-        showeolPaint = new Paint ();
-        showeolPaint.setTypeface (Typeface.MONOSPACE);
 
         screenTextBuffer.SetChangeNotification (new Runnable () {
             @Override
@@ -150,8 +138,50 @@ public class ScreenTextView extends EditText
         screenTextBuffer.SetRingSize (settings.max_chars.GetValue ());
 
         // now that array is in place (in case of redraw triggers herein), set up everything else
-        setBackgroundColor (frozen ? settings.GetFGColor () : settings.GetBGColor ());
-        setTextSize (settings.font_size.GetValue ());
+        edtx.setBackgroundColor (frozen ? settings.GetFGColor () : settings.GetBGColor ());
+        edtx.setTextSize (settings.font_size.GetValue ());
+
+        // keyboard style
+        boolean usevt100kb = settings.vt100_kbd.GetValue ();
+        if (!usevt100kb) {
+            vt100kb = null;
+            // no spelling interference
+            edtx.setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            // make sure we get RETURN key instead of DONE key
+            edtx.setImeOptions (EditorInfo.IME_ACTION_NONE);
+            removeAllViews ();
+            addView (edtx);
+        } else if (vt100kb == null) {
+            vt100kb = new HorizontalScrollView (sshclient);
+            vt100kb.setLayoutParams (new LinearLayout.LayoutParams (ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0.0F));
+            VT100KBView vtkb = new VT100KBView (session);
+            vt100kb.addView (vtkb);
+            vt100kb.setVisibility (GONE);
+            edtx.setInputType (InputType.TYPE_NULL);
+            removeAllViews ();
+            addView (edtx);
+            addView (vt100kb);
+        }
+    }
+
+    @Override  // OnFocusChangeListener
+    public void onFocusChange (View v, boolean focus)
+    {
+        Log.d (TAG, "ScreenTextView focus=" + focus);
+        if (vt100kb != null) {
+            vt100kb.setVisibility (focus ? VISIBLE : GONE);
+            if (focus) {
+                // turn off android keyboard
+                InputMethodManager imm = (InputMethodManager) sshclient.getSystemService (Context.INPUT_METHOD_SERVICE);
+                imm.hideSoftInputFromWindow (v.getWindowToken (), 0);
+            }
+        } else {
+            if (focus) {
+                // turn on android keyboard
+                InputMethodManager imm = (InputMethodManager) sshclient.getSystemService (Context.INPUT_METHOD_SERVICE);
+                imm.showSoftInput (v, 0);
+            }
+        }
     }
 
     /**
@@ -181,14 +211,14 @@ public class ScreenTextView extends EditText
 
             // reverse background color
             Settings settings = sshclient.getSettings ();
-            setBackgroundColor (settings.GetFGColor ());
+            edtx.setBackgroundColor (settings.GetFGColor ());
 
             // reset select range
             selectActive = false;
             selectBeg = selectCursor = selectEnd = screenTextBuffer.insertpoint;
 
             // get stuff redrawn in reversed colors
-            invalidate ();
+            edtx.invalidate ();
         } else {
             ThawIt ();
         }
@@ -206,8 +236,8 @@ public class ScreenTextView extends EditText
 
         // get stuff redrawn in normal colors
         Settings settings = sshclient.getSettings ();
-        setBackgroundColor (settings.GetBGColor ());
-        invalidate ();
+        edtx.setBackgroundColor (settings.GetBGColor ());
+        edtx.invalidate ();
     }
 
     public boolean IsFrozen () { return frozen; }
@@ -235,394 +265,338 @@ public class ScreenTextView extends EditText
         if (!invalTextImmPend.getAndSet (false)) {
             invalTextDelPend = false;
         }
-        invalidate ();
+        edtx.invalidate ();
+    }
+
+    public void PanCoastReceived ()
+    {
+        panning.PanCoast ();
     }
 
     /**
-     * We were invalidated via invalidate(), so draw all the text to the canvas.
+     * Holds the displayed text.
+     * Also contains the normal (non-vt-100) keyboard.
      */
-    @Override
-    protected void onDraw (Canvas canvas)
-    {
-        long uptimemillis = SystemClock.uptimeMillis ();
+    private class MyEditText extends EditText implements TextWatcher {
+        private boolean readingkb;
+        private Paint bgpaint;                       // used to paint text background rectangles
+        private Paint cursorPaint;                   // used to paint cursor
+        private Paint fgpaint;                       // used to paint text characters
+        private Paint selectPaint;                   // background paint for selected text
+        private Paint showeolPaint;                  // paints the EOL character
 
-        synchronized (screenTextBuffer) {
+        public MyEditText ()
+        {
+            super (sshclient);
+            addTextChangedListener (this);
 
-            // maybe need to set up new line mapping
-            if (screenTextBuffer.needToRender) {
-                RenderText ();
-                screenTextBuffer.needToRender = false;
-                screenTextBuffer.renderCursor = -1;
-            }
+            setTypeface (Typeface.MONOSPACE);
+            setSingleLine (false);
+            setHorizontallyScrolling (false);
 
-            // get ring buffer parameters
-            final char[]  twt = screenTextBuffer.twt;
-            final int     twb = screenTextBuffer.twb;
-            final int     twm = screenTextBuffer.twm;
-            final short[] twa = screenTextBuffer.twa;
+            bgpaint = new Paint ();
 
-            // get text size parameters
-            int underhang  = (int)Math.ceil (fgpaint.descent ());
-            int lineheight = getLineHeight ();
-            int top        = getPaddingTop ();
-            int left       = getPaddingLeft ();
-            int bottom     = getHeight ();
-            int right      = getWidth ();
+            cursorPaint = new Paint ();
 
-            // get selected text range if any
-            int selbeg = (selectBeg <= selectEnd) ? selectBeg : selectEnd;
-            int selend = (selectEnd >= selectBeg) ? selectEnd : selectBeg;
+            fgpaint = getPaint ();
+            fgpaint.setStyle (Paint.Style.FILL_AND_STROKE);
 
-            // a vt100 normally has (somewhat) white characters on a black background
-            // so we consider it to be reversed when the settings background is white
-            // and we reverse that again if we are in frozen mode
-            boolean bgrev = (sshclient.getSettings ().GetBGColor () != Color.BLACK) ^ frozen;
+            selectPaint = new Paint ();
+            selectPaint.setColor (Color.GRAY);
+            selectPaint.setStyle (Paint.Style.FILL);
 
-            // get cursor position
-            int cursor = frozen ? selectCursor : screenTextBuffer.insertpoint;
-
-            // set up a not possible value (cuz we always have alpha != 0)
-            int lastdefbgcolor = 0;
-
-            // step through visible lines
-            for (int lineno = 0; lineno < numVisibleLines; lineno ++) {
-
-                // y co-ordinate at bottom of text
-                // (underhang goes below this)
-                top += lineheight;
-
-                // get offsets in theWholeText to be drawn for the line
-                int precnl  = precedNewLines[lineno];
-                int linebeg = visibleLineBegs[lineno];
-                int lineend = visibleLineEnds[lineno];
-                if (linebeg < 0) continue;  // unwritten lines at top of page have -999 here
-
-                // set up background color for this line and the rest of the page
-                // by using the background color of the preceding line feed
-                int defbgcolor = screenTextBuffer.attrs;
-                if (precnl >= 0) {
-                    defbgcolor = twa[(twb+precnl)&twm];
-                }
-                defbgcolor = bgrev ?
-                        ScreenTextBuffer.FGColor (defbgcolor) :
-                        ScreenTextBuffer.BGColor (defbgcolor);
-                if (defbgcolor != lastdefbgcolor) {
-                    bgpaint.setColor (defbgcolor);
-                    canvas.drawRect (left, top + underhang - lineheight, right, bottom, bgpaint);
-                    lastdefbgcolor = defbgcolor;
-                }
-
-                int     stackStart = -1;
-                short   stackAttrs = 0;
-                boolean stackSeld  = false;
-
-                // step through the line's visible characters
-                for (int charno = linebeg; charno < lineend; charno ++) {
-
-                    // find out about character to be drawn
-                    int     index = (twb + charno) & twm;
-                    short   attrs = twa[index];
-                    boolean seld  = selectActive && (charno >= selbeg) && (charno < selend);
-
-                    // if attributes are different than previous on the line,
-                    // draw previous stuff then save this one as first of its kind
-                    if ((stackStart < 0) || (attrs != stackAttrs) || (seld != stackSeld)) {
-                        if (stackStart >= 0) {
-                            int x = left + charWidthInPixels * (stackStart - linebeg);
-                            DrawStackedChars (canvas, stackAttrs, stackStart, charno,
-                                    uptimemillis, bgrev, stackSeld,
-                                    defbgcolor, x, top, underhang,
-                                    lineheight, twt, twb, twm);
-                        }
-                        stackStart = charno;
-                        stackAttrs = attrs;
-                        stackSeld  = seld;
-                    }
-                }
-
-                // flush any undrawn chars
-                if (stackStart >= 0) {
-                    int x = left + charWidthInPixels * (stackStart - linebeg);
-                    DrawStackedChars (canvas, stackAttrs, stackStart, lineend,
-                            uptimemillis, bgrev, stackSeld,
-                            defbgcolor, x, top, underhang,
-                            lineheight, twt, twb, twm);
-                }
-
-                // maybe drawr a cursor
-                if ((cursor >= linebeg) &&                                                   // has to be on or after first char on line
-                        (cursor <= lineend) &&                                               // has to be on or before last char on line
-                                                                                             // ...can also be right after last char on line
-                        (cursor < linebeg + numVisibleChars) &&                              // can't be off visible width of screen
-                        (uptimemillis % (2 * CURSOR_HALFCYCLE_MS) < CURSOR_HALFCYCLE_MS)) {  // make it blink
-                    cursorPaint.setColor (bgrev ? ScreenTextBuffer.BGColor (screenTextBuffer.attrs) : ScreenTextBuffer.FGColor (screenTextBuffer.attrs));
-                    int x = (cursor - linebeg) * charWidthInPixels + left;
-                    switch (sshclient.getSettings ().cursor_style.GetValue ()) {
-                        case 0: {  // line
-                            canvas.drawLine (x - 2, top + underhang - lineheight, x - 2, top + underhang, cursorPaint);
-                            break;
-                        }
-                        case 1: {  // box
-                            cursorPaint.setStyle (Paint.Style.STROKE);
-                            canvas.drawRect (x - 2, top + underhang - lineheight, x + charWidthInPixels, top + underhang, cursorPaint);
-                            break;
-                        }
-                        case 2: {  // block
-                            cursorPaint.setStyle (Paint.Style.FILL);
-                            canvas.drawRect (x - 2, top + underhang - lineheight, x + charWidthInPixels, top + underhang, cursorPaint);
-                            break;
-                        }
-                    }
-                }
-            }
+            showeolPaint = new Paint ();
+            showeolPaint.setTypeface (Typeface.MONOSPACE);
         }
 
-        // maybe call back in a a little while to flip cursor on or off or blink text on or off
-        if (!invalTextDelPend) {
-            invalTextDelPend = true;
-            session.getScreendatahandler ().sendEmptyMessageDelayed (
-                    ScreenDataHandler.INVALTEXT,
-                    CURSOR_HALFCYCLE_MS - (uptimemillis % CURSOR_HALFCYCLE_MS)
-            );
-        }
-    }
-
-    /**
-     * @brief Draw run of characters of common attributes
-     * @param canvas = canvas to draw characters on
-     * @param attrs = attributes to draw characters with
-     * @param runbeg = beginning twt[] index inclusive
-     * @param runend = ending twt[] index exclusive
-     * @param uptimemillis = used for blinking mode
-     * @param bgrev = true iff background/foreground colors are reversed
-     * @param selected = true iff the characters are all drawn as selected
-     * @param defbgcolor = what color already fills the background
-     * @param x = left edge of canvas for first char to be drawn
-     * @param y = bottom edge of characters
-     * @param underhang = how many pixels chars can hang below 'top'
-     * @param lineheight = total line height spacing
-     * @param twt = text ring buffer
-     * @param twb = base index in ring buffer
-     * @param twm = mask of ring buffer size
-     */
-    private void DrawStackedChars (Canvas canvas, short attrs, int runbeg, int runend,
-                                   long uptimemillis, boolean bgrev, boolean selected,
-                                   int defbgcolor, int x, int y, int underhang,
-                                   int lineheight, char[] twt, int twb, int twm)
-    {
-        // make sure we have something to draw
-        if (runend <= runbeg) return;
-
-        // maybe reverse background/foreground colors
-        int bgcolor = ScreenTextBuffer.BGColor (attrs);
-        int fgcolor = ScreenTextBuffer.FGColor (attrs);
-        if (((attrs & ScreenTextBuffer.TWA_REVER) != 0) ^ bgrev) {
-            int q = bgcolor;
-            bgcolor = fgcolor;
-            fgcolor = q;
-        }
-
-        // see if it intersects the current select range
-        // use highlighted background color if so
-        if (selected) {
-            bgcolor = Color.rgb (
-                    (Color.red   (bgcolor) + Color.red   (fgcolor)) / 2,
-                    (Color.green (bgcolor) + Color.green (fgcolor)) / 2,
-                    (Color.blue  (bgcolor) + Color.blue  (fgcolor)) / 2
-            );
-        }
-
-        // draw solid rectangle for background color
-        if (bgcolor != defbgcolor) {
-            bgpaint.setColor (bgcolor);
-            canvas.drawRect (
-                    x,
-                    y + underhang - lineheight,
-                    x + charWidthInPixels * (runend - runbeg),
-                    y + underhang,
-                    bgpaint
-            );
-        }
-
-        // maybe skip blinking chars
-        if (((attrs & ScreenTextBuffer.TWA_BLINK) != 0) &&
-                (uptimemillis % (2 * CURSOR_HALFCYCLE_MS) < CURSOR_HALFCYCLE_MS)) return;
-
-        // maybe attributes want bolding and/or underlining
-        fgpaint.setColor (fgcolor);
-        int bold = ((attrs & ScreenTextBuffer.TWA_BOLD) != 0) ? 3 : 1;
-        if ((attrs & ScreenTextBuffer.TWA_UNDER) != 0) {
-            fgpaint.setStrokeWidth (bold * 2);
-            canvas.drawLine (
-                    x, y + underhang - 1,
-                    x + charWidthInPixels * (runend - runbeg), y + underhang - 1,
-                    fgpaint
-            );
-        }
-        fgpaint.setStrokeWidth (bold);
-
-        // maybe there is a newline char on the end for show_eols mode
-        // newlines can only be on the end because they delimit lines
-        // ...and our caller processes things one line at a time
-        if (twt[(twb+runend-1)&twm] == '\n') {
-            showeolPaint.setColor (fgcolor);
-            showeolPaint.setTextSize (fgpaint.getTextSize () / 2);
-            showeolPaint.setStrokeWidth (bold);
-
-            int x1 = x + charWidthInPixels * (-- runend - runbeg);
-            int y1 = y - lineHeightInPixels / 2;
-            canvas.drawText ("N", 0, 1, x1, y1, showeolPaint);
-
-            int x2 = x1 + charWidthInPixels  / 2;
-            canvas.drawText ("L", 0, 1, x2, y, showeolPaint);
-        }
-
-        // now drawr the printable characters
-        if (runend > runbeg) {
-            int indexbeg = (twb + runbeg) & twm;
-            int indexend = (twb + runend - 1) & twm;
-            if (indexend >= indexbeg) {
-                canvas.drawText (twt, indexbeg, runend - runbeg, x, y, fgpaint);
-            } else {
-                canvas.drawText (twt, indexbeg, twm + 1 - indexbeg, x, y, fgpaint);
-                x += charWidthInPixels * (twm + 1 - indexbeg);
-                canvas.drawText (twt, 0, indexend + 1, x, y, fgpaint);
-            }
-        }
-    }
-
-    /**
-     * Map theWholeText to the screen, using whatever scrolling offsets are in effect.
-     * renderCursor < 0: leave scrolling alone
-     *             else: adjust scrolling such that cursor position is visible
-     */
-    private void RenderText ()
-    {
-        // calculate number of characters that will fit in a single line of the
-        // usable area of the screen
-        int usableWidth = getWidth () - getPaddingLeft () - getPaddingRight ();
-        if (charWidthInPixels == 0) {
-            Paint paint = getPaint ();
-            charWidthInPixels = (int)(Math.ceil (paint.measureText ("M", 0, 1)));
-            if (charWidthInPixels > 0) numVisibleChars = usableWidth / charWidthInPixels;
-        }
-
-        // calculate number of lines that will fit on the usable area of screen
-        int usableHeight = getHeight () - getPaddingTop () - getPaddingBottom ();
-        if (lineHeightInPixels == 0) {
-            lineHeightInPixels = getLineHeight ();
-            if (lineHeightInPixels > 0) numVisibleLines = usableHeight / lineHeightInPixels;
-        }
-
-        // make sure we got something for all that
-        // it might be early on and we don't get rational stuff
-        if ((usableWidth <= 0) || (charWidthInPixels <= 0) || (numVisibleChars <= 0) ||
-                (usableHeight <= 0) || (lineHeightInPixels <= 0) || (numVisibleLines <= 0)) {
+        /**
+         * Intercept any changes in font size so we can recompute pixel sizes.
+         */
+        @Override
+        public void setTextSize (float size)
+        {
+            super.setTextSize (size);
+            savedTextSize      = size;
             charWidthInPixels  = 0;
             lineHeightInPixels = 0;
-            numVisibleChars    = 0;
-            numVisibleLines    = 0;
-            return;
+            screenTextBuffer.needToRender = true;
+            invalidate ();
         }
 
-        // maybe we need to inform host of a change in screen dimensions
-        if ((lastsentptychrcols != numVisibleChars) ||
-                (lastsentptychrrows != numVisibleLines) ||
-                (lastsentptypixcols != usableWidth) ||
-                (lastsentptypixrows != usableHeight)) {
-            ChannelShell shellchan = session.getShellChannel ();
-            if ((shellchan != null) && !frozen) {
-                lastsentptychrcols = numVisibleChars;
-                lastsentptychrrows = numVisibleLines;
-                lastsentptypixcols = usableWidth;
-                lastsentptypixrows = usableHeight;
-                Log.d (TAG, "setPtySize ("  + lastsentptychrcols + ", " + lastsentptychrrows + ", " + lastsentptypixcols + ", " + lastsentptypixrows + ")");
-                // doesn't throw anything, just discards any errors
-                shellchan.setPtySize (lastsentptychrcols, lastsentptychrrows, lastsentptypixcols, lastsentptypixrows);
+        /**
+         * If the view dimensions change at all, re-render the text so we have the correct
+         * number of characters and lines displayed to fill the screen.
+         */
+        @Override
+        protected void onLayout (boolean changed, int left, int top, int right, int bottom)
+        {
+            super.onLayout (changed, left, top, right, bottom);
+            if (changed) {
+                charWidthInPixels  = 0;
+                lineHeightInPixels = 0;
+                screenTextBuffer.needToRender = true;
+                invalidate ();
             }
         }
 
-        // these arrays will be filled with the beginning and end of each visible line.
-        // it will always have exactly numvisiblelines (possibly with blank lines on the top)
-        // and the lines are no longer than numVisibleChars.
-        if (visibleLineBegs.length != numVisibleLines) {
-            precedNewLines  = new int[numVisibleLines];
-            visibleLineBegs = new int[numVisibleLines];
-            visibleLineEnds = new int[numVisibleLines];
+        /**
+         * Panning (scrolling) the text.
+         */
+        @Override
+        public boolean onTouchEvent (MotionEvent me)
+        {
+            panning.OnTouchEvent (me);
+            return super.onTouchEvent (me);
         }
 
-        // get local copies of this stuff
-        final char[] twt = screenTextBuffer.twt;  // theWholeText ring buffer of shell text from the host
-        final int    twb = screenTextBuffer.twb;  // the base of all our indices
-        final int    twm = screenTextBuffer.twm;  // mask for twt indices (twt.length()-1)
-        final int    twu = screenTextBuffer.theWholeUsed;
-        final int renderCursor = screenTextBuffer.renderCursor;
+        /**
+         * We were invalidated via invalidate(), so draw all the text to the canvas.
+         */
+        @Override
+        protected void onDraw (Canvas canvas)
+        {
+            long uptimemillis = SystemClock.uptimeMillis ();
 
-        // do initial mapping of text lines to visible lines.
-        // vertical scrolling may be adjusted to make cursor line visible.
-        // wrapped mode:
-        //   lines are no wider than screen
-        //   horizontal scrolling does not apply cuz there's nothing to scroll to
-        // unwrapped mode:
-        //   lines are full width of text lines and not horizontally scrolled
-        boolean seencursor = (renderCursor < 0);  // pretend we have seen cursor if we aren't looking
-        boolean showeols   = sshclient.getSettings ().show_eols.GetValue ();
-        boolean wraplines  = sshclient.getSettings ().wrap_lines.GetValue ();
-        int cursorvisline  = -1;                  // don't know what line cursor is in yet
-        int nextlineend    = twu;                 // just past end of last line to be evaluated
-        int precednewline  = -1;                  // don't know where newline that precedes nextlineend is
-        int vislinenum     = numVisibleLines + screenTextBuffer.scrolledLinesDown;
+            synchronized (screenTextBuffer) {
 
-        //  nextlineend > 0 : there is more text to look at
-        //  vislinenum  > 0 : there are more visible lines to fill in
-        //  !seencursor     : keep going anyway because we haven't seen cursor line yet
-        while ((nextlineend > 0) && ((vislinenum > 0) || !seencursor)) {
+                // maybe need to set up new line mapping
+                if (screenTextBuffer.needToRender) {
+                    RenderText ();
+                    screenTextBuffer.needToRender = false;
+                    screenTextBuffer.renderCursor = -1;
+                    cursorBlinkBase = uptimemillis;
+                }
 
-            // nextlineend = just past what we want to display on this line
-            //               never includes the newline char even if showeols mode
-            int vislineend = nextlineend;
+                // reset cursor blink cycle whenever there was a change
+                uptimemillis -= cursorBlinkBase;
 
-            // compute beginning of what to display on this line
-            int vislinebeg;
-            if (wraplines) {
+                // get ring buffer parameters
+                final char[]  twt = screenTextBuffer.twt;
+                final int     twb = screenTextBuffer.twb;
+                final int     twm = screenTextBuffer.twm;
+                final short[] twa = screenTextBuffer.twa;
 
-                // if we don't know where the preceding newline is, find it
-                if (precednewline < 0) {
-                    for (precednewline = nextlineend; -- precednewline >= 0;) {
-                        char ch = twt[(precednewline+twb)&twm];
-                        if (ch == '\n') break;
+                // get text size parameters
+                int underhang  = (int)Math.ceil (fgpaint.descent ());
+                int lineheight = getLineHeight ();
+                int top        = getPaddingTop ();
+                int left       = getPaddingLeft ();
+                int bottom     = getHeight ();
+                int right      = getWidth ();
+
+                // get selected text range if any
+                int selbeg = (selectBeg <= selectEnd) ? selectBeg : selectEnd;
+                int selend = (selectEnd >= selectBeg) ? selectEnd : selectBeg;
+
+                // a vt100 normally has (somewhat) white characters on a black background
+                // so we consider it to be reversed when the settings background is white
+                // and we reverse that again if we are in frozen mode
+                boolean bgrev = (sshclient.getSettings ().GetBGColor () != Color.BLACK) ^ frozen;
+
+                // get cursor position
+                int cursor = frozen ? selectCursor : screenTextBuffer.insertpoint;
+
+                // set up a not possible value (cuz we always have alpha != 0)
+                int lastdefbgcolor = 0;
+
+                // step through visible lines
+                for (int lineno = 0; lineno < numVisibleLines; lineno ++) {
+
+                    // y co-ordinate at bottom of text
+                    // (underhang goes below this)
+                    top += lineheight;
+
+                    // get offsets in theWholeText to be drawn for the line
+                    int precnl  = precedNewLines[lineno];
+                    int linebeg = visibleLineBegs[lineno];
+                    int lineend = visibleLineEnds[lineno];
+                    if (linebeg < 0) continue;  // unwritten lines at top of page have -999 here
+
+                    // set up background color for this line and the rest of the page
+                    // by using the background color of the preceding line feed
+                    int defbgcolor = screenTextBuffer.attrs;
+                    if (precnl >= 0) {
+                        defbgcolor = twa[(twb+precnl)&twm];
+                    }
+                    defbgcolor = bgrev ?
+                            ScreenTextBuffer.FGColor (defbgcolor) :
+                            ScreenTextBuffer.BGColor (defbgcolor);
+                    if (defbgcolor != lastdefbgcolor) {
+                        bgpaint.setColor (defbgcolor);
+                        canvas.drawRect (left, top + underhang - lineheight, right, bottom, bgpaint);
+                        lastdefbgcolor = defbgcolor;
                     }
 
-                    // maybe extend this line to include newline on the end
-                    if (showeols && (vislineend < twu)) {
-                        vislineend ++;
+                    int     stackStart = -1;
+                    short   stackAttrs = 0;
+                    boolean stackSeld  = false;
+
+                    // step through the line's visible characters
+                    for (int charno = linebeg; charno < lineend; charno ++) {
+
+                        // find out about character to be drawn
+                        int     index = (twb + charno) & twm;
+                        short   attrs = twa[index];
+                        boolean seld  = selectActive && (charno >= selbeg) && (charno < selend);
+
+                        // if attributes are different than previous on the line,
+                        // draw previous stuff then save this one as first of its kind
+                        if ((stackStart < 0) || (attrs != stackAttrs) || (seld != stackSeld)) {
+                            if (stackStart >= 0) {
+                                int x = left + charWidthInPixels * (stackStart - linebeg);
+                                DrawStackedChars (canvas, stackAttrs, stackStart, charno,
+                                        uptimemillis, bgrev, stackSeld,
+                                        defbgcolor, x, top, underhang,
+                                        lineheight, twt, twb, twm);
+                            }
+                            stackStart = charno;
+                            stackAttrs = attrs;
+                            stackSeld  = seld;
+                        }
+                    }
+
+                    // flush any undrawn chars
+                    if (stackStart >= 0) {
+                        int x = left + charWidthInPixels * (stackStart - linebeg);
+                        DrawStackedChars (canvas, stackAttrs, stackStart, lineend,
+                                uptimemillis, bgrev, stackSeld,
+                                defbgcolor, x, top, underhang,
+                                lineheight, twt, twb, twm);
+                    }
+
+                    // maybe drawr a cursor
+                    if ((cursor >= linebeg) &&                                                   // has to be on or after first char on line
+                            (cursor <= lineend) &&                                               // has to be on or before last char on line
+                                                                                                 // ...can also be right after last char on line
+                            (cursor < linebeg + numVisibleChars) &&                              // can't be off visible width of screen
+                            (uptimemillis % (2 * CURSOR_HALFCYCLE_MS) < CURSOR_HALFCYCLE_MS)) {  // make it blink
+                        cursorPaint.setColor (bgrev ? ScreenTextBuffer.BGColor (screenTextBuffer.attrs) : ScreenTextBuffer.FGColor (screenTextBuffer.attrs));
+                        int x = (cursor - linebeg) * charWidthInPixels + left;
+                        switch (sshclient.getSettings ().cursor_style.GetValue ()) {
+                            case 0: {  // line
+                                canvas.drawLine (x - 2, top + underhang - lineheight, x - 2, top + underhang, cursorPaint);
+                                break;
+                            }
+                            case 1: {  // box
+                                cursorPaint.setStyle (Paint.Style.STROKE);
+                                canvas.drawRect (x - 2, top + underhang - lineheight, x + charWidthInPixels, top + underhang, cursorPaint);
+                                break;
+                            }
+                            case 2: {  // block
+                                cursorPaint.setStyle (Paint.Style.FILL);
+                                canvas.drawRect (x - 2, top + underhang - lineheight, x + charWidthInPixels, top + underhang, cursorPaint);
+                                break;
+                            }
+                        }
                     }
                 }
+            }
 
-                // vislineend = just past what we want to display on this line
-                //              might include newline if showeols mode
-                // precednewline+1 = very beginning of line in theWholeText
+            // maybe call back in a a little while to flip cursor on or off or blink text on or off
+            if (!invalTextDelPend) {
+                invalTextDelPend = true;
+                session.getScreendatahandler ().sendEmptyMessageDelayed (
+                        ScreenDataHandler.INVALTEXT,
+                        CURSOR_HALFCYCLE_MS - (uptimemillis % CURSOR_HALFCYCLE_MS)
+                );
+            }
+        }
 
-                // figure out beginning of the visible line
-                // - for 0..numVisibleChars of text, we get exactly one visible blank line
-                // - for numVisibleChars+1 and up, the partial line if any is lower than full lines
-                int numcharsleftinline = vislineend - precednewline - 1;
-                int partiallinechars   = numcharsleftinline % numVisibleChars;
-                if (partiallinechars > 0) {
-                    vislinebeg = vislineend - partiallinechars;
-                } else if (numcharsleftinline > 0) {
-                    vislinebeg = vislineend - numVisibleChars;
-                } else {
-                    vislinebeg = vislineend;
+        /**
+         * Map theWholeText to the screen, using whatever scrolling offsets are in effect.
+         * renderCursor < 0: leave scrolling alone
+         *             else: adjust scrolling such that cursor position is visible
+         */
+        private void RenderText ()
+        {
+            // calculate number of characters that will fit in a single line of the
+            // usable area of the screen
+            int usableWidth = getWidth () - getPaddingLeft () - getPaddingRight ();
+            if (charWidthInPixels == 0) {
+                Paint paint = getPaint ();
+                charWidthInPixels = (int)(Math.ceil (paint.measureText ("M", 0, 1)));
+                if (charWidthInPixels > 0) numVisibleChars = usableWidth / charWidthInPixels;
+            }
+
+            // calculate number of lines that will fit on the usable area of screen
+            int usableHeight = getHeight () - getPaddingTop () - getPaddingBottom ();
+            if (lineHeightInPixels == 0) {
+                lineHeightInPixels = getLineHeight ();
+                if (lineHeightInPixels > 0) numVisibleLines = usableHeight / lineHeightInPixels;
+            }
+
+            // make sure we got something for all that
+            // it might be early on and we don't get rational stuff
+            if ((usableWidth <= 0) || (charWidthInPixels <= 0) || (numVisibleChars <= 0) ||
+                    (usableHeight <= 0) || (lineHeightInPixels <= 0) || (numVisibleLines <= 0)) {
+                charWidthInPixels  = 0;
+                lineHeightInPixels = 0;
+                numVisibleChars    = 0;
+                numVisibleLines    = 0;
+                return;
+            }
+
+            // maybe we need to inform host of a change in screen dimensions
+            // also inform ScreenTextBuffer in case it cares
+            if ((lastsentptychrcols != numVisibleChars) ||
+                    (lastsentptychrrows != numVisibleLines) ||
+                    (lastsentptypixcols != usableWidth) ||
+                    (lastsentptypixrows != usableHeight)) {
+                ChannelShell shellchan = session.getShellChannel ();
+                if ((shellchan != null) && !frozen) {
+                    lastsentptychrcols = numVisibleChars;
+                    lastsentptychrrows = numVisibleLines;
+                    lastsentptypixcols = usableWidth;
+                    lastsentptypixrows = usableHeight;
+
+                    Log.d (TAG, "setPtySize ("  + lastsentptychrcols + ", " + lastsentptychrrows + ", " + lastsentptypixcols + ", " + lastsentptypixrows + ")");
+                    // doesn't throw anything, just discards any errors
+                    shellchan.setPtySize (lastsentptychrcols, lastsentptychrrows, lastsentptypixcols, lastsentptypixrows);
+
+                    screenTextBuffer.SetVisibleDims (numVisibleLines, numVisibleChars);
+                }
+            }
+
+            // these arrays will be filled with the beginning and end of each visible line.
+            // it will always have exactly numvisiblelines (possibly with blank lines on the top)
+            // and the lines are no longer than numVisibleChars.
+            if (visibleLineBegs.length != numVisibleLines) {
+                precedNewLines  = new int[numVisibleLines];
+                visibleLineBegs = new int[numVisibleLines];
+                visibleLineEnds = new int[numVisibleLines];
+            }
+
+            // get local copies of this stuff
+            final char[] twt = screenTextBuffer.twt;  // theWholeText ring buffer of shell text from the host
+            final int    twb = screenTextBuffer.twb;  // the base of all our indices
+            final int    twm = screenTextBuffer.twm;  // mask for twt indices (twt.length()-1)
+            final int    twu = screenTextBuffer.theWholeUsed;
+            final int renderCursor = screenTextBuffer.renderCursor;
+
+            // do initial mapping of text lines to visible lines.
+            // vertical scrolling may be adjusted to make cursor line visible.
+            // lines are full width of text lines and not horizontally scrolled.
+            boolean seencursor = (renderCursor < 0);  // pretend we have seen cursor if we aren't looking
+            boolean showeols   = sshclient.getSettings ().show_eols.GetValue ();
+            int cursorvisline  = -1;                  // don't know what line cursor is in yet
+            int nextlineend    = twu;                 // just past end of last line to be evaluated
+            int vislinenum     = numVisibleLines + screenTextBuffer.scrolledLinesDown;
+
+            //  nextlineend > 0 : there is more text to look at
+            //  vislinenum  > 0 : there are more visible lines to fill in
+            //  !seencursor     : keep going anyway because we haven't seen cursor line yet
+            while ((nextlineend > 0) && ((vislinenum > 0) || !seencursor)) {
+
+                // nextlineend = just past what we want to display on this line
+                //               never includes the newline char even if showeols mode
+                int vislineend = nextlineend;
+
+                // maybe extend line to include the newline as a character on the end
+                if (showeols && (vislineend < twu)) {
+                    vislineend ++;
                 }
 
-                // figure out end of line for next time through loop
-                nextlineend = vislinebeg;
-                if (nextlineend == precednewline + 1) {
-                    nextlineend = precednewline;
-                    precednewline = -1;
-                }
-            } else {
+                // compute beginning of what to display on this line
 
                 // next loop's end of line is at preceding newline
                 while (-- nextlineend >= 0) {
@@ -631,103 +605,90 @@ public class ScreenTextView extends EditText
                 }
 
                 // this line's beginning is just after that newline
-                vislinebeg = nextlineend + 1;
+                int vislinebeg = nextlineend + 1;
 
-                // maybe extend line to include the newline as a character on the end
-                if (showeols && (vislineend < twu)) {
-                    vislineend ++;
+                // maybe cursor is visible in this line
+                boolean cursorinthisline = (renderCursor >= vislinebeg) && (renderCursor <= vislineend);
+
+                // maybe we need to scroll text up to see cursor line
+                if (cursorinthisline && (vislinenum > numVisibleLines)) {
+                    screenTextBuffer.scrolledLinesDown -= vislinenum - numVisibleLines;
+                    vislinenum = numVisibleLines;
+                }
+
+                // get index to store into
+                //   i .ge. numVisibleLines: we are below the scrolled area so skip those lines
+                //   i .lt. 0:               we need to scroll text down more to see the cursor
+                int i = -- vislinenum;
+
+                // store line limits in array
+                if (i < numVisibleLines) {
+                    while (i < 0) i += numVisibleLines;
+                    precedNewLines[i]  = vislinebeg - 1;
+                    visibleLineBegs[i] = vislinebeg;
+                    visibleLineEnds[i] = vislineend;
+                }
+
+                // remember which line cursor is in
+                if (cursorinthisline) cursorvisline = i;
+
+                // remember if cursor has been seen at all
+                seencursor |= cursorinthisline;
+            }
+
+            if (vislinenum < 0) {
+
+                // text needed to be scrolled down some more to see line with cursor
+                // eg, if vislinenum == -1, text needed to be scrolled down one more line
+                screenTextBuffer.scrolledLinesDown -= vislinenum;
+
+                // find index in arrays where top line to be displayed is at
+                // eg, if vislinenum == -1, top line is at index numVisibleLines - 1
+                do vislinenum += numVisibleLines;
+                while (vislinenum < 0);
+
+                // rotate that index around to index 0 so it ends up at top
+                if (vislinenum > 0) {
+                    int[] temp = new int[numVisibleLines];
+                    System.arraycopy (precedNewLines, vislinenum, temp, 0, numVisibleLines - vislinenum);
+                    System.arraycopy (precedNewLines, 0, temp, numVisibleLines - vislinenum, vislinenum);
+                    System.arraycopy (temp, 0, precedNewLines, 0, numVisibleLines);
+                    System.arraycopy (visibleLineBegs, vislinenum, temp, 0, numVisibleLines - vislinenum);
+                    System.arraycopy (visibleLineBegs, 0, temp, numVisibleLines - vislinenum, vislinenum);
+                    System.arraycopy (temp, 0, visibleLineBegs, 0, numVisibleLines);
+                    System.arraycopy (visibleLineEnds, vislinenum, temp, 0, numVisibleLines - vislinenum);
+                    System.arraycopy (visibleLineEnds, 0, temp, numVisibleLines - vislinenum, vislinenum);
+                    System.arraycopy (temp, 0, visibleLineEnds, 0, numVisibleLines);
+                }
+
+                // so theoretically cursor is in the top line now
+                cursorvisline = 0;
+            } else if (vislinenum > 0) {
+
+                // if there are visible lines left at the top, fill them with null lines
+                // use some number that can't possibly match a cursor, so any negative would work
+
+                // but it is possible we have blank lines because text is scrolled down,
+                // in which case we get rid of that much scrolling down and try again.
+                if (screenTextBuffer.scrolledLinesDown > 0) {
+                    screenTextBuffer.scrolledLinesDown -= vislinenum;
+                    if (screenTextBuffer.scrolledLinesDown < 0) screenTextBuffer.scrolledLinesDown = 0;
+                    RenderText ();
+                    return;
+                }
+
+                if (vislinenum > numVisibleLines) vislinenum = numVisibleLines;
+                while (-- vislinenum >= 0) {
+                    precedNewLines[vislinenum]  = -999;
+                    visibleLineBegs[vislinenum] = -999;
+                    visibleLineEnds[vislinenum] = -999;
                 }
             }
 
-            // maybe cursor is visible in this line
-            boolean cursorinthisline = (renderCursor >= vislinebeg) && (renderCursor <= vislineend);
-
-            // maybe we need to scroll text up to see cursor line
-            if (cursorinthisline && (vislinenum > numVisibleLines)) {
-                screenTextBuffer.scrolledLinesDown -= vislinenum - numVisibleLines;
-                vislinenum = numVisibleLines;
-            }
-
-            // get index to store into
-            //   i .ge. numVisibleLines: we are below the scrolled area so skip those lines
-            //   i .lt. 0:               we need to scroll text down more to see the cursor
-            int i = -- vislinenum;
-
-            // store line limits in array
-            if (i < numVisibleLines) {
-                while (i < 0) i += numVisibleLines;
-                precedNewLines[i]  = vislinebeg - 1;
-                visibleLineBegs[i] = vislinebeg;
-                visibleLineEnds[i] = vislineend;
-            }
-
-            // remember which line cursor is in
-            if (cursorinthisline) cursorvisline = i;
-
-            // remember if cursor has been seen at all
-            seencursor |= cursorinthisline;
-        }
-
-        if (vislinenum < 0) {
-
-            // text needed to be scrolled down some more to see line with cursor
-            // eg, if vislinenum == -1, text needed to be scrolled down one more line
-            screenTextBuffer.scrolledLinesDown -= vislinenum;
-
-            // find index in arrays where top line to be displayed is at
-            // eg, if vislinenum == -1, top line is at index numVisibleLines - 1
-            do vislinenum += numVisibleLines;
-            while (vislinenum < 0);
-
-            // rotate that index around to index 0 so it ends up at top
-            if (vislinenum > 0) {
-                int[] temp = new int[numVisibleLines];
-                System.arraycopy (precedNewLines, vislinenum, temp, 0, numVisibleLines - vislinenum);
-                System.arraycopy (precedNewLines, 0, temp, numVisibleLines - vislinenum, vislinenum);
-                System.arraycopy (temp, 0, precedNewLines, 0, numVisibleLines);
-                System.arraycopy (visibleLineBegs, vislinenum, temp, 0, numVisibleLines - vislinenum);
-                System.arraycopy (visibleLineBegs, 0, temp, numVisibleLines - vislinenum, vislinenum);
-                System.arraycopy (temp, 0, visibleLineBegs, 0, numVisibleLines);
-                System.arraycopy (visibleLineEnds, vislinenum, temp, 0, numVisibleLines - vislinenum);
-                System.arraycopy (visibleLineEnds, 0, temp, numVisibleLines - vislinenum, vislinenum);
-                System.arraycopy (temp, 0, visibleLineEnds, 0, numVisibleLines);
-            }
-
-
-            // so theoretically cursor is in the top line now
-            cursorvisline = 0;
-        } else if (vislinenum > 0) {
-
-            // if there are visible lines left at the top, fill them with null lines
-            // use some number that can't possibly match a cursor, so any negative would work
-
-            // but it is possible we have blank lines because text is scrolled down,
-            // in which case we get rid of that much scrolling down and try again.
-            if (screenTextBuffer.scrolledLinesDown > 0) {
-                screenTextBuffer.scrolledLinesDown -= vislinenum;
-                if (screenTextBuffer.scrolledLinesDown < 0) screenTextBuffer.scrolledLinesDown = 0;
-                RenderText ();
-                return;
-            }
-
-            if (vislinenum > numVisibleLines) vislinenum = numVisibleLines;
-            while (-- vislinenum >= 0) {
-                precedNewLines[vislinenum]  = -999;
-                visibleLineBegs[vislinenum] = -999;
-                visibleLineEnds[vislinenum] = -999;
-            }
-        }
-
-        // apply horizontal scrolling and line length limit
-        if (wraplines) {
-
-            // there never is any horizontal scrolling if we are in wrap mode
-            // and line length limits have already been applied
-            screenTextBuffer.scrolledCharsLeft = 0;
-        } else {
+            // apply horizontal scrolling and line length limit
 
             // maybe adjust horizontal scrolling to make cursor visible
-            if (cursorvisline >= 0) {
+            if (MakeCursorVisible (cursorvisline, renderCursor)) {
 
                 // get index for beginning of full line
                 int vislinebeg = visibleLineBegs[cursorvisline];
@@ -784,51 +745,249 @@ public class ScreenTextView extends EditText
                 visibleLineEnds[i] = vislineend;
             }
         }
-    }
 
-    /**
-     * Intercept any changes in font size so we can recompute pixel sizes.
-     */
-    @Override
-    public void setTextSize (float size)
-    {
-        super.setTextSize (size);
-        savedTextSize      = size;
-        charWidthInPixels  = 0;
-        lineHeightInPixels = 0;
-        screenTextBuffer.needToRender = true;
-        invalidate ();
-    }
+        /**
+         * @brief Draw run of characters of common attributes
+         * @param canvas = canvas to draw characters on
+         * @param attrs = attributes to draw characters with
+         * @param runbeg = beginning twt[] index inclusive
+         * @param runend = ending twt[] index exclusive
+         * @param uptimemillis = used for blinking mode
+         * @param bgrev = true iff background/foreground colors are reversed
+         * @param selected = true iff the characters are all drawn as selected
+         * @param defbgcolor = what color already fills the background
+         * @param x = left edge of canvas for first char to be drawn
+         * @param y = bottom edge of characters
+         * @param underhang = how many pixels chars can hang below 'top'
+         * @param lineheight = total line height spacing
+         * @param twt = text ring buffer
+         * @param twb = base index in ring buffer
+         * @param twm = mask of ring buffer size
+         */
+        private void DrawStackedChars (Canvas canvas, short attrs, int runbeg, int runend,
+                                       long uptimemillis, boolean bgrev, boolean selected,
+                                       int defbgcolor, int x, int y, int underhang,
+                                       int lineheight, char[] twt, int twb, int twm)
+        {
+            // make sure we have something to draw
+            if (runend <= runbeg) return;
 
-    /**
-     * If the view dimensions change at all, re-render the text so we have the correct
-     * number of characters and lines displayed to fill the screen.
-     */
-    @Override
-    protected void onLayout (boolean changed, int left, int top, int right, int bottom)
-    {
-        super.onLayout (changed, left, top, right, bottom);
-        if (changed) {
-            charWidthInPixels  = 0;
-            lineHeightInPixels = 0;
-            screenTextBuffer.needToRender = true;
-            invalidate ();
+            // maybe reverse background/foreground colors
+            int bgcolor = ScreenTextBuffer.BGColor (attrs);
+            int fgcolor = ScreenTextBuffer.FGColor (attrs);
+            if (((attrs & ScreenTextBuffer.TWA_REVER) != 0) ^ bgrev) {
+                int q = bgcolor;
+                bgcolor = fgcolor;
+                fgcolor = q;
+            }
+
+            // see if it intersects the current select range
+            // use highlighted background color if so
+            if (selected) {
+                bgcolor = Color.rgb (
+                        (Color.red   (bgcolor) + Color.red   (fgcolor)) / 2,
+                        (Color.green (bgcolor) + Color.green (fgcolor)) / 2,
+                        (Color.blue  (bgcolor) + Color.blue  (fgcolor)) / 2
+                );
+            }
+
+            // draw solid rectangle for background color
+            if (bgcolor != defbgcolor) {
+                bgpaint.setColor (bgcolor);
+                canvas.drawRect (
+                        x,
+                        y + underhang - lineheight,
+                        x + charWidthInPixels * (runend - runbeg),
+                        y + underhang,
+                        bgpaint
+                );
+            }
+
+            // maybe skip blinking chars
+            if (((attrs & ScreenTextBuffer.TWA_BLINK) != 0) &&
+                    (uptimemillis % (2 * CURSOR_HALFCYCLE_MS) < CURSOR_HALFCYCLE_MS)) return;
+
+            // maybe attributes want bolding and/or underlining
+            fgpaint.setColor (fgcolor);
+            int bold = ((attrs & ScreenTextBuffer.TWA_BOLD) != 0) ? 3 : 1;
+            if ((attrs & ScreenTextBuffer.TWA_UNDER) != 0) {
+                fgpaint.setStrokeWidth (bold * 2);
+                canvas.drawLine (
+                        x, y + underhang - 1,
+                        x + charWidthInPixels * (runend - runbeg), y + underhang - 1,
+                        fgpaint
+                );
+            }
+            fgpaint.setStrokeWidth (bold);
+
+            showeolPaint.setColor (fgcolor);
+            showeolPaint.setTextSize (fgpaint.getTextSize () / 2);
+            showeolPaint.setStrokeWidth (bold);
+
+            // maybe there is a newline char on the end for show_eols mode
+            // newlines can only be on the end because they delimit lines
+            // ...and our caller processes things one line at a time
+            if (twt[(twb+runend-1)&twm] == '\n') {
+                DrawSmallCharPair (canvas, "NL", x + charWidthInPixels * (-- runend - runbeg), y);
+            }
+
+            // now drawr the printable characters
+            if (runend > runbeg) {
+                if ((attrs & ScreenTextBuffer.TWA_SPCGR) != 0) {
+                    DrawSpecialGraphics (canvas, runbeg, runend, x, y, twt, twb, twm);
+                } else {
+                    int indexbeg = (twb + runbeg) & twm;
+                    int indexend = (twb + runend - 1) & twm;
+                    if (indexend >= indexbeg) {
+                        canvas.drawText (twt, indexbeg, runend - runbeg, x, y, fgpaint);
+                    } else {
+                        canvas.drawText (twt, indexbeg, twm + 1 - indexbeg, x, y, fgpaint);
+                        x += charWidthInPixels * (twm + 1 - indexbeg);
+                        canvas.drawText (twt, 0, indexend + 1, x, y, fgpaint);
+                    }
+                }
+            }
         }
-    }
 
-    /**
-     * Panning (scrolling) the text.
-     */
-    @Override
-    public boolean onTouchEvent (MotionEvent me)
-    {
-        panning.OnTouchEvent (me);
-        return super.onTouchEvent (me);
-    }
+        /**
+         * See if we should scroll horizontally to make the cursor visible.
+         * Normally we do it if the cursor is on a visible line.
+         * But if the cursor is just off the end of the last visible line,
+         * we won't scroll over for it, cuz that technique is used by the top
+         * command to park the cursor off the end of the last line to hide it.
+         */
+        private boolean MakeCursorVisible (int cursorvisline, int renderCursor)
+        {
+            // if cursor not on a visible line, don't bother scrolling
+            if (cursorvisline < 0) return false;
 
-    public void PanCoastReceived ()
-    {
-        panning.PanCoast ();
+            // if cursor other than at the very end of the ring, make it visible
+            if (screenTextBuffer.insertpoint < screenTextBuffer.theWholeUsed) return true;
+
+            // get index for beginning of full line
+            int vislinebeg = visibleLineBegs[cursorvisline];
+
+            // see how many chars over from beginning of line cursor is
+            int cursorinline = renderCursor - vislinebeg;
+
+            // if cursor is parked right at the end of a line
+            // do not scroll over one character to show the cursor
+            // (such is the case for the top command output)
+            return cursorinline != numVisibleChars;
+        }
+
+        /**
+         * Draw a run of special graphics characters that weren't handled by ScreenTextBuffer
+         * converting them to equivalent Unicode characters.
+         */
+        private void DrawSpecialGraphics (Canvas canvas, int beg, int end, int x, int y, char[] twt, int twb, int twm)
+        {
+            do {
+                char ch = twt[(twb+beg)&twm];
+                switch (ch) {
+                    case 0142: DrawSmallCharPair (canvas, "HT", x, y); break;
+                    case 0143: DrawSmallCharPair (canvas, "FF", x, y); break;
+                    case 0144: DrawSmallCharPair (canvas, "CR", x, y); break;
+                    case 0145: DrawSmallCharPair (canvas, "LF", x, y); break;
+                    case 0150: DrawSmallCharPair (canvas, "NL", x, y); break;
+                    case 0151: DrawSmallCharPair (canvas, "VT", x, y); break;
+
+                    // checkerboard
+                    case 0141: {
+                        canvas.save ();
+                        try {
+                            Paint.FontMetricsInt fm = fgpaint.getFontMetricsInt ();
+                            int top = y + fm.ascent;
+                            canvas.clipRect (x, top, x + charWidthInPixels, y);
+                            canvas.drawText ("\u2592", 0, 1, x, y, fgpaint);
+                        } finally {
+                            canvas.restore ();
+                        }
+                        break;
+                    }
+
+                    // horizontal lines
+                    //   0157 at the top of the cell
+                    //   0161 in the middle (as drawn by unicode 0x2500)
+                    //   0163 at the bottom of the cell
+                    case 0157:case 0160:case 0162:case 0163: {
+                        // compute offset to draw unicode 0x2500 with
+                        int underhang = (int)Math.ceil (fgpaint.descent ());
+                        int dy = 0161 - ch;
+                        int yy = y - (lineHeightInPixels - underhang) * dy / 4;
+                        canvas.drawText ("\u2500", 0, 1, x, yy, fgpaint);
+                        break;
+                    }
+                }
+                x += charWidthInPixels;
+            } while (++ beg < end);
+        }
+
+        /**
+         * Draw pair of small-sized characters in a single character cell.
+         * @param canvas = what to draw them on
+         * @param pair = pair of characters to draw
+         * @param x1 = left edge of char cell
+         * @param y2 = bottom edge of char cell
+         */
+        private void DrawSmallCharPair (Canvas canvas, String pair, int x1, int y2)
+        {
+            y2 += showeolPaint.descent ();
+
+            int y1 = y2 - lineHeightInPixels / 2;
+            canvas.drawText (pair, 0, 1, x1, y1, showeolPaint);
+
+            int x2 = x1 + charWidthInPixels / 2;
+            canvas.drawText (pair, 1, 2, x2, y2, showeolPaint);
+        }
+
+        // process enter and delete keys
+        @Override
+        public boolean dispatchKeyEvent (KeyEvent ke)
+        {
+            if (ke.getAction () == KeyEvent.ACTION_DOWN) {
+                switch (ke.getKeyCode ()) {
+                    case KeyEvent.KEYCODE_ENTER: {
+                        ProcessKeyboardString ("\r");
+                        return true;
+                    }
+                    case KeyEvent.KEYCODE_DEL: {
+                        ProcessKeyboardString ("\177");
+                        return true;
+                    }
+                }
+            }
+            return super.dispatchKeyEvent (ke);
+        }
+
+        /*
+         * All this bologna to capture printable keys...
+         *
+         * TextWatcher sequence is:
+         *   beforeTextChanged() once
+         *   onTextChanged() twice!
+         *   afterTextChanged() once
+         */
+
+        @Override // TextWatcher
+        public void beforeTextChanged (CharSequence s, int start, int count, int after)
+        { }
+
+        @Override // TextWatcher
+        public void onTextChanged (CharSequence s, int start, int before, int count)
+        { }
+
+        @Override // TextWatcher
+        public void afterTextChanged (Editable s)
+        {
+            if (!readingkb) {
+                readingkb = true;
+                String str = s.toString ();
+                s.replace (0, str.length (), "", 0, 0);
+                ProcessKeyboardString (str);
+                readingkb = false;
+            }
+        }
     }
 
     private class STPanning extends PanAndZoom {
@@ -942,7 +1101,7 @@ public class ScreenTextView extends EditText
             }
             if (render) {
                 screenTextBuffer.needToRender = true;
-                invalidate ();
+                edtx.invalidate ();
             }
         }
 
@@ -954,7 +1113,7 @@ public class ScreenTextView extends EditText
             float ts = savedTextSize * sf;
             if (ts < Settings.TEXT_SIZE_MIN) ts = Settings.TEXT_SIZE_MIN;
             if (ts > Settings.TEXT_SIZE_MAX) ts = Settings.TEXT_SIZE_MAX;
-            ScreenTextView.this.setTextSize (ts);
+            edtx.setTextSize (ts);
         }
     }
 
@@ -970,57 +1129,18 @@ public class ScreenTextView extends EditText
     //    return super.onKeyPreIme (keyCode, ke);
     //}
 
-    // process enter and delete keys
-    @Override
-    public boolean dispatchKeyEvent (KeyEvent ke)
-    {
-        if (ke.getAction () == KeyEvent.ACTION_DOWN) {
-            switch (ke.getKeyCode ()) {
-                case KeyEvent.KEYCODE_ENTER: {
-                    session.SendCharToHost (13);
-                    return true;
-                }
-                case KeyEvent.KEYCODE_DEL: {
-                    session.SendCharToHost (127);
-                    return true;
-                }
-            }
-        }
-        return super.dispatchKeyEvent (ke);
-    }
-
-    /*
-     * All this bologna to capture printable keys...
-     *
-     * TextWatcher sequence is:
-     *   beforeTextChanged() once
-     *   onTextChanged() twice!
-     *   afterTextChanged() once
+    /**
+     * Process a string coming from the keyboard (normal or vt-100).
+     * @param str = keyboard string to process, eg, "A"
      */
-
-    @Override // TextWatcher
-    public void beforeTextChanged (CharSequence s, int start, int count, int after)
-    { }
-
-    @Override // TextWatcher
-    public void onTextChanged (CharSequence s, int start, int before, int count)
-    { }
-
-    @Override // TextWatcher
-    public void afterTextChanged (Editable s)
+    public void ProcessKeyboardString (String str)
     {
-        if (!readingkb) {
-            readingkb = true;
-            String str = s.toString ();
-            s.replace (0, str.length (), "", 0, 0);
-            for (char chr : str.toCharArray ()) {
-                if (frozen) {
-                    ProcessSelectionChar (chr);
-                } else {
-                    session.SendCharToHost (chr);
-                }
+        for (char chr : str.toCharArray ()) {
+            if (frozen) {
+                ProcessSelectionChar (chr);
+            } else {
+                session.SendCharToHost (chr);
             }
-            readingkb = false;
         }
     }
 
@@ -1087,7 +1207,7 @@ public class ScreenTextView extends EditText
 
         screenTextBuffer.needToRender = true;
         screenTextBuffer.renderCursor = selectCursor;
-        invalidate ();
+        edtx.invalidate ();
     }
 
     /**
@@ -1109,7 +1229,7 @@ public class ScreenTextView extends EditText
                 new String (twt, beg, twm + 1 - beg) + new String (twt, 0, ++ end);
 
         // start making an alert box
-        AlertDialog.Builder ab = new AlertDialog.Builder (getContext ());
+        AlertDialog.Builder ab = new AlertDialog.Builder (sshclient);
         ab.setTitle ("Copy to clipboard?");
 
         // its message is the selected string
@@ -1128,7 +1248,7 @@ public class ScreenTextView extends EditText
             public void onClick (DialogInterface dialog, int whichButton) {
                 sshclient.internalClipboard = subseq;
                 selectActive = false;
-                invalidate ();
+                edtx.invalidate ();
             }
         });
 
@@ -1138,7 +1258,7 @@ public class ScreenTextView extends EditText
                 ClipboardManager cbm = (ClipboardManager)sshclient.getSystemService (Context.CLIPBOARD_SERVICE);
                 cbm.setText (subseq);
                 selectActive = false;
-                invalidate ();
+                edtx.invalidate ();
             }
         });
 

@@ -1,0 +1,35 @@
+<HTML><BODY>
+<H3>SHELL Screen</H3>
+<P>At the top is a single-line text box.  To initiate a connection to a host, type in the
+    <TT>username@hostnname</TT> that you want to communicate with.  If it uses a non-standard port number (22),
+    use <TT>username@hostname:portnumber</TT> format.  After entering the information, click the keyboard's
+    Next or Done button to initiate the connection process.  If the connection requires a passphrase and/or
+    password, you will be prompted.  You may also be asked to confirm the fingerprint of the remote host to
+    prevent man-in-the-middle attacks.</P>
+<P>The app will remember what <TT>username@hostname[:portnumber]</TT>s you have successfully connected to, and
+    provide them as auto-completion text next time you want to connect, so you don't have to retype the long
+    strings on your small keyboard each time.</P>
+<P>The color of the text in the host name entry box is significant:
+<UL>
+    <LI>BLACK - the app is waiting for the user to enter the information and click Done or Next</LI>
+    <LI>BLUE - the app is attempting to connect to the remote host</LI>
+    <LI>GREEN - the connection to the remote host is alive and authenticated and ready for use.
+        You can use the keyboard to send text to the host and the host's replies will
+        appear in the large text area below.</LI>
+    <LI>RED - the host has disconnected or failed to connect.  To reconnect, click on the box and
+        either just click Done/Next to reconnect to same host or change the info first then click
+        Done/Next to connect to a different host.</LI>
+</UL>
+</P>
+<P>Once connected, by default, the app will open a shell channel and you can communicate with the host shell
+    using the keyboard.  If you want to do file transfers or tunnels instead, you can switch to the file
+    transfer or tunnels screen from the menu at this point and just leave the shell open.  Or if you prefer to
+    have the app not open a shell at all, select file transfer or tunnels from the menu BEFORE connecting and
+    the app will switch to that mode as soon as the connection completes without starting shell mode.  You can
+    always go back to shell mode later by selecting <TT>shell</TT> from the menu.  Shell mode can also be
+    terminated by typing an <TT>exit</TT> or similar command to the host so it will close its shell.  You can
+    then switch to the file transfer or tunnels mode screen from the menu.</P>
+<P>Note:  If you are having difficulty getting the soft keyboard to appear for sending text to the host,
+    try clicking on the Android's menu button then selecting <TT>shell</TT> (again if necessary).</P>
+<P><A HREF="help.html">(top)</A></P>
+</BODY></HTML>

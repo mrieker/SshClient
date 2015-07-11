@@ -7,8 +7,9 @@
 #  4) Run this script
 #
 cd `dirname $0`
-if [ app/app-aligned.apk -ot app/app.apk ]
+set -x
+if [ app/app-aligned.apk -ot app/app-release.apk ]
 then
     rm -f app/app-aligned.apk
-    ~/android-sdks/build-tools/19.1.0/zipalign -v 4 app/app.apk app/app-aligned.apk
+    ~/android-sdks/build-tools/19.1.0/zipalign -v 4 app/app-release.apk app/app-aligned.apk
 fi

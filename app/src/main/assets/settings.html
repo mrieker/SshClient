@@ -1,0 +1,68 @@
+<HTML><BODY>
+<H3>SETTINGS Screen</H3>
+<P>This screen holds customization settings.  Use the keyboard or click on the various settings to
+    change them.  The changes will not take effect until you click the <TT>SAVE</TT> button.  If you
+    click <TT>REVERT</TT>, any changes you have made will be discarded and you can make new changes
+    if you like.  If you click the Android's menu to change screens (such as <TT>shell</TT>), your
+    changes will be discarded.
+<P><B>Cursor style</B> - select whether the cursor for the <A HREF="shell.html">SHELL</A> screen is
+    a thin line, a hollow box, a solid block, or none at all.</P>
+<P><B>Font size</B> - selects the font size used for the SHELL screen and the directory listing part
+    of the <A HREF="filetransfer.html">FILE TRANSFER</A> screen.</P>
+<P><B>Include hidden files</B> - includes hidden files (files whose name begin with '.') in the
+    directory listing part of the <A HREF="filetransfer.html">FILE TRANSFER</A> screen.</P>
+<P><B>Max total chars</B> - selects the number of characters that are saved in memory for each SHELL
+    session.  Only powers-of-two are permitted here.  The larger the number, the farther you will be
+    able to scroll back to see previous host output.
+<P><B>Screen orientation</B> - the orientation for <A HREF="shell.html">SHELL</A> and
+    <A HREF="filetransfer.html">FILE TRANSFER</A> screens can be set to:
+<UL>
+    <LI><B>Unlocked</B> - to allow it to change as the device is rotated</LI>
+    <LI><B>Portrait</B> - to lock it in Portrait mode regardless of device rotation</LI>
+    <LI><B>Landscape</B> - to lock it in Landscape mode regardless of device rotation</LI>
+</UL>
+<P><B>Show EOL markers</B> - enables display of a character <SUP>N</SUP><SUB>L</SUB> on the
+    <A HREF="shell.html">SHELL</A> screen that indicates the end-of-line as given by the host.</P>
+<P><B>Term type</B> - determines the terminal type sent to the host when starting a shell session.
+<P><B>Text colors</B> - select the colors used for the <A HREF="shell.html">SHELL</A> screen and the
+    directory listing part of the <A HREF="filetransfer.html">FILE TRANSFER</A> screen, either
+    black-on-white or white-on-black.</P>
+<P><B>Transfer progress</B> - selects style of file transfer progress bars:
+<UL>
+    <LI><B>Data files only</B> - shows size & time for data files only.  Directories are not shown,
+        except briefly between data files.</LI>
+    <LI><B>Hierarchy w/out dir sizes</B> - shows size & time for data files, shows file count for
+        directories in the hierarchy.</LI>
+    <LI><B>Hierarchy with dir sizes</B> - shows size & time for both data files and directories.
+        Requires pre-scanning the directory tree to gather directory sizes.  Directory sizes are the
+        total of all included data files plus some crudely guesstimated per-file overhead.</LI>
+</UL>
+</P>
+<P><B>VT-100 keyboard</B> - enables VT-100-style keyboard for the <A HREF="shell.html">SHELL</A>
+    mode screen.
+<UL>
+    <LI><B>CTRL and SHIFT</B> - a single click will make them effective just for the next key
+        clicked; double-clicking will make them effective for all key clicks until released by a
+        third click (lock mode).</LI>
+    <LI>The keyboard size can be changed by locking both CTRL and SHIFT modes then clicking the Up
+        and Down cursor arrow buttons.  Even so, the keyboard may only be practical on tablet-sized
+        screens.</LI>
+    <LI>Even if you do not need the VT-100 keypad, you may find having alphas, digits and special
+        characters available without having to switch pages convenient.</LI>
+    <LI>If you experience double keyboards (the Android keyboard along with the VT-100 keyboard),
+        with this setting <I>checked</I>, just dismiss the Android keyboard via the Android's Back
+        button.</LI>
+    <LI>If you experience no keyboard with this setting <I>unchecked</I>, tap on the SHELL screen
+        text to bring focus to the window which should make the Android keyboard visible.</LI>
+</UL>
+</P>
+<P><B>Wrap long lines</B> - enables wrapping of long lines from the host onto multiple lines of the
+    SHELL screen.  Otherwise, long lines can be viewed by horizontally scrolling the SHELL screen.
+    <UL>
+        <LI><B><TT>vi</TT></B> works best with the <B>Wrap long lines</B> setting
+            <I>checked</I>.</LI>
+    </UL>
+</P>
+<P>Note:  The screen is locked in Portrait orientation while in the SETTINGS screen.</P>
+<P><A HREF="help.html">(top)</A></P>
+</BODY></HTML>

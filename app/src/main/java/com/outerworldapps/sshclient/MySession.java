@@ -77,6 +77,7 @@ public class MySession extends LinearLayout {
     public HostNameText getHostnametext () { return hostnametext; }
     public ScreenDataHandler getScreendatahandler () { return screendatahandler; }
     public ScreenDataThread getScreendatathread () { return screendatathread; }
+    public ScreenTextBuffer getScreentextbuffer () { return screentextbuffer; }
     public ScreenTextView getScreentextview () { return screentextview; }
     public SshClient getSshClient () { return sshclient; }
     public int getSessionNumber () { return sessionNumber; }
@@ -87,9 +88,10 @@ public class MySession extends LinearLayout {
     public MySession (SshClient sc)
     {
         super (sc);
+        sshclient = sc;
 
         sessionNumber = sc.getNextSessionNumber ();
-        screentextbuffer = new ScreenTextBuffer ();
+        screentextbuffer = new ScreenTextBuffer (this);
         screenMode = MSM_SHELL;
 
         CommonConstruction (sc);
@@ -101,6 +103,7 @@ public class MySession extends LinearLayout {
     public MySession (SshClient sc, ScreenDataThread sdt)
     {
         super (sc);
+        sshclient = sc;
 
         screendatathread = sdt;
         screentextbuffer = sdt.screenTextBuffer;
@@ -117,7 +120,6 @@ public class MySession extends LinearLayout {
 
     private void CommonConstruction (SshClient sc)
     {
-        sshclient = sc;
         jschuserinfo = new JschUserInfo (this);
         screendatahandler = new ScreenDataHandler (this);
 
@@ -201,6 +203,7 @@ public class MySession extends LinearLayout {
      */
     public void LoadSettings ()
     {
+        screentextbuffer.LoadSettings ();
         screentextview.LoadSettings ();
         if (fileexplorerview != null) fileexplorerview.LoadSettings ();
     }
@@ -311,7 +314,7 @@ public class MySession extends LinearLayout {
 
                 // if we aren't connected yet, output message to shell screen
                 // saying what mode it will go in when it connects
-                if (screendatathread == null) ScreenMsg (modeNames[screenMode] + " mode selected\n");
+                if (screendatathread == null) ScreenMsg (modeNames[screenMode] + " mode selected\r\n");
 
                 // if we are connected, rebuild our view based on new shell/filetransfer/tunnel mode
                 // also save new mode in case we detach and re-attach.
@@ -409,26 +412,26 @@ public class MySession extends LinearLayout {
                 return e;
             }
 
-            ScreenMsg ("\n[" + ScreenDataThread.hhmmssNow () + "] connecting to " + userhostport + "\n");
+            ScreenMsg ("\r\n[" + ScreenDataThread.hhmmssNow () + "] connecting to " + userhostport + "\r\n");
             Session jses;
             try {
                 JSch jsch = new JSch ();
                 jsch.setHostKeyRepository (sshclient.getMyhostkeyrepo ());
-                ScreenMsg ("...selecting keypair\n");
+                ScreenMsg ("...selecting keypair\r\n");
                 SavedLogin savedlogin = sshclient.getSavedlogins ().get (userhostport);
                 keypairident = null;
                 if ((savedlogin == null) || (savedlogin.getKeypair () != null)) {
                     keypairident = SelectKeypair ((savedlogin == null) ? null : savedlogin.getKeypair ());
                 }
                 if (keypairident != null) {
-                    ScreenMsg ("...using keypair " + keypairident + "\n");
+                    ScreenMsg ("...using keypair " + keypairident + "\r\n");
                     byte[] prvkey = sshclient.getMasterPassword ().ReadEncryptedFileBytes (sshclient.getPrivatekeyfilename (keypairident));
                     byte[] pubkey = sshclient.getMasterPassword ().ReadEncryptedFileBytes (sshclient.getPublickeyfilename (keypairident));
                     jsch.addIdentity (keypairident, prvkey, pubkey, null);
                 } else {
-                    ScreenMsg ("...not using a keypair\n");
+                    ScreenMsg ("...not using a keypair\r\n");
                 }
-                ScreenMsg ("...setting up session\n");
+                ScreenMsg ("...setting up session\r\n");
                 jses = jsch.getSession (username, hostname, portnumber);
                 jschuserinfo.dbpassword   = null;       // no password is available from database
                 jschuserinfo.password     = null;       // no password has been entered by user
@@ -439,9 +442,9 @@ public class MySession extends LinearLayout {
                 }
                 jses.setPassword ("");
                 jses.setUserInfo (jschuserinfo);
-                ScreenMsg ("...connecting to host\n");
+                ScreenMsg ("...connecting to host\r\n");
                 jses.connect (CONN_TIMEOUT_MS);
-                ScreenMsg ("...connection complete\n");
+                ScreenMsg ("...connection complete\r\n");
                 return jses;
             } catch (Exception e) {
                 Log.w (TAG, "connect error", e);
@@ -642,7 +645,7 @@ public class MySession extends LinearLayout {
             out.flush ();
         } catch (Exception e) {
             Log.w (TAG, "transmit error", e);
-            ScreenMsg ("\ntransmit error: " + SshClient.GetExMsg (e));
+            ScreenMsg ("\r\ntransmit error: " + SshClient.GetExMsg (e));
             try { out.close (); } catch (Exception ee) { }
             screendatathread.output = null;
             return false;

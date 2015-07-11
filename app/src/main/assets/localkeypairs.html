@@ -1,0 +1,64 @@
+<HTML><BODY>
+<H3>Local Keypairs</H3>
+<P>A Local Keypair is used to identify this app on this device to a remote host.  The identity can be used
+    instead of a password so you don't have to store the password on your device and you don't have to type it
+    in each time.  Also, some servers may be configured to require keypair authentication and will not accept
+    any password at all.</P>
+<P>Once a keypair is generated (using random numbers), the public key must be appended to the server's
+    <TT>~/.ssh/authorized_keys</TT> file.  If the server is configured to accept a password, you can log in
+    using the password (do not save it) then copy/paste the public key into the server's
+    <TT>authorized_keys</TT> file.  If the server does not allow password logins, you will have to have some
+    other mechanism to accomplish it, such as copy/paste the pubic key into an email that you send to the
+    server's administrator.  If the <TT>authorized_keys</TT> file was properly updated, you will be
+    authenticated using the keypair and will not need to enter a password next time you log in.</P>
+<P>When generating a keypair, it asks for the following information:
+<UL>
+    <LI><B>Name to identify</B> - written as a tag on the public key so that at some time in the distant
+        future, when you look at a remote host's <TT>~/.ssh/authorized_keys</TT> file, you will know where
+        this particular public key came from, as it will be tagged with this identifier.  You can only use
+        a-z, A-Z, 0-9, @, periods, underscores and hyphens in the name, and a maximum length of 50
+        characters.  It is also used to differentiate multiple keypairs on the same device if you create
+        more than one, as each one must have an unique name.  The identifier appears at the end of the
+        single line of the public key.</LI>
+    <LI><B>Passphrase</B> - used as a password for the keypair file itself.  This will safeguard the
+        keypair file in case someone steals your device, they won't be able to access your authorized
+        remote hosts.  The same passphrase goes with this keypair file, and since the same keypair file is
+        used for many remote hosts, you only have to remember this one passphrase.  Leave both boxes blank
+        if you do not want a passphrase, in which case you should enable a <A HREF="masterpassword.html">master
+            password</A>.</LI>
+    <LI><B>DSA/RSA</B> - keypair encryption format.  There are many discussions on the Internet about which
+        is more secure.</LI>
+    <LI><B>1024/2048/4096</B> - key size.  1024 is the most universally accepted by servers.  The bigger
+        the number, the more secure.</LI>
+</UL>
+</P>
+<P>You can also load a previously generated keypair that you have saved somewhere.  It takes several steps to
+    make this work:
+<OL>
+    <LI>Copy the keypair into the device's clipboard using whatever method you have, possibly from some
+        other app.  The text must be formatted to have the public key on the first line and the rest of the
+        text containing the private key, which is several lines long.  Typically the public key line begins
+        with something like <TT>ssh-rsa</TT> and ends with the identifier it was created with.  The private
+        key is several lines long and begins with a line like <TT>-----BEGIN RSA PRIVATE KEY-----</TT> and
+        ends with a line like <TT>-----END RSA PRIVATE KEY-----</TT>.</LI>
+    <LI>Click the Android's menu button then click on <TT>local keypairs</TT> then select <TT>load keypair
+        directly</TT>.</LI>
+    <LI>Click either the <TT>Load from internal clipboard</TT> or <TT>Load from external clipboard</TT>
+        button.  You should see a few characters from the beginning of the public key and a few characters
+        from the end of the private key string.</LI>
+    <LI>Click the <TT>OK</TT> button.  You should get an acknowledgement message saying the keys were
+        accepted.</LI>
+</OL>
+You can load the keypair from either the internal clipboard or the external clipboard.  For better
+security, use the internal clipboard wherever possible as it cannot be peeked at by other applications.
+</P>
+<P>Once created on a particular client, a keypair should not be deleted, as they represent an unique key that
+    is used to unlock the hosts that you have added the public key to their <TT>~/.ssh/authorized_keys</TT>
+    file.</P>
+<P><I><B>Caution:</B></I>  While it is perfectly acceptable to copy <I>public</I> keys using any method
+    available, it is considered bad practice to copy <I>private</I> keys around, especially via the external
+    clipboard.  The functionality is provided for completeness.  You might, at some level of risk, want to
+    back up your private key (along with your public key) by pasting them to a secure host, using the
+    <I>internal</I> clipboard, or use file transfer mode.  <I><B>Use at your own risk!</B></I></P>
+<P><A HREF="help.html">(top)</A></P>
+</BODY></HTML>

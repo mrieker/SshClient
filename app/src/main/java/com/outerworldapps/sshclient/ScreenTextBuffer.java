@@ -41,8 +41,6 @@ import android.util.Log;
 public class ScreenTextBuffer {
     public static final String TAG = "SshClient";
 
-    private final static char[] eightspaces = { ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ' };
-
     public char[] twt;              // theWholeText array ring buffer
     public int twb;                 // base of all other indices
     public int twm;                 // twt.length - 1 (always power-of-two - 1)
@@ -54,9 +52,12 @@ public class ScreenTextBuffer {
 
     private boolean frozen;         // indicates frozen mode
     public  int insertpoint;        // where next incoming text gets inserted in theWholeText
+    private int lineWidth;          // number of characters per line of latest GUI ScreenTextView
+    private int screenHeight;       // number of lines per screen of latest GUI ScreenTextView
     public  int scrolledCharsLeft;  // number of chars we are shifted left
     public  int scrolledLinesDown;  // number of lines we are shifted down
     public  int theWholeUsed;       // amount in theWholeText that is occupied starting at twb
+    private MySession session;
     private Runnable notify;        // what to notify when there are changes
 
     private static final short C_BLACK   = 0;
@@ -74,6 +75,7 @@ public class ScreenTextBuffer {
     public static final short TWA_REVER =   8;
     public static final short TWA_BGCLR =  16 * 7;
     public static final short TWA_FGCLR = 128 * 7;
+    public static final short TWA_SPCGR = 1024;
 
     public static final short RESET_ATTRS = (TWA_FGCLR & -TWA_FGCLR) * C_WHITE + (TWA_BGCLR & -TWA_BGCLR) * C_BLACK;
 
@@ -83,9 +85,28 @@ public class ScreenTextBuffer {
             Color.BLACK, Color.RED, Color.GREEN, Color.YELLOW,
             Color.BLUE, Color.MAGENTA, Color.CYAN, Color.WHITE };
 
+    private boolean altcharset;
+    public  boolean cursorappmode;    // false: send <ESC>[ABCD; true: send <ESC>OABCD for arrow keys
+    private boolean hardwrapmode;     // as given by escape sequence from host
+    private boolean hardwrapsetting;  // as given by the settings screen
+    public  boolean keypadappmode;    // false: keypad sends numbers; true: keypad sends escape sequences
+    private boolean linefeedmode;     // false: <LF> stays in same column; true: <LF> goes to first col in new line
+    private boolean originmode;       // false: cursor positioning absolute; true: cursor positioning relative to margin
+    private boolean savedAltCharSet;
     private final char[] escseqbuf = new char[ESCSEQMAX];
-    private int escseqidx = -1;
+    private int   escseqidx = -1;
+    private int   botScrollLine;
+    private int   savedColNumber;
+    private int   savedRowNumber;
+    private int   topScrollLine;
     public  short attrs = RESET_ATTRS;
+
+    public ScreenTextBuffer (MySession s)
+    {
+        session = s;
+        hardwrapmode = true;
+        LoadSettings ();
+    }
 
     /**
      * Set what screen the text is being displayed on so
@@ -94,6 +115,26 @@ public class ScreenTextBuffer {
     public void SetChangeNotification (Runnable not)
     {
         notify = not;
+    }
+
+    /**
+     * A setting has been changed.  Get the ones we care about.
+     */
+    public void LoadSettings ()
+    {
+        synchronized (this) {
+
+            // hardwrapsetting = true: no horizontal scrolling on the GUI display
+            //                         all lines we generate in the ring are lineWidth max length
+            //                         hardwrapmode = false: discard chars after lineWidth length
+            //                                         true: start a separate line after lineWidth length
+            //                         (behaves like an XTerm of a fixed width)
+            //                  false: we can possibly have lines longer than lineWidth in ring buffer
+            //                         GUI will allow horizontal scrolling
+            //                         hardwrapmode is ignored
+            //                         (behaves like something of indefinite width)
+            hardwrapsetting = session.getSshClient ().getSettings ().wrap_lines.GetValue ();
+        }
     }
 
     /**
@@ -244,6 +285,21 @@ public class ScreenTextBuffer {
     }
 
     /**
+     * Set what the host thinks our dimensions are.
+     * @param rows = number of rows the host thinks we have
+     * @param cols = number of columns the host thinks we have
+     */
+    public void SetVisibleDims (int rows, int cols)
+    {
+        synchronized (this) {
+            screenHeight  = rows;
+            lineWidth     = cols;
+            topScrollLine = 1;
+            botScrollLine = rows;
+        }
+    }
+
+    /**
      * Process incoming shell data and format into ring buffer.
      */
     public void Incoming (char[] buf, int beg, int end)
@@ -274,11 +330,38 @@ public class ScreenTextBuffer {
         renderCursor = insertpoint;
 
         Runnable not = notify;
-        if (not != null) not.run ();;
+        if (not != null) not.run ();
     }
 
     private void IncomingWork (char[] buf, int beg, int end)
     {
+        /*{
+            StringBuffer sb = new StringBuffer ();
+            for (int j = beg; j < end; j ++) {
+                if (sb.length () >= 64) {
+                    WriteDebug ("from host '" + sb.toString () + "'");
+                    sb.delete (0, sb.length ());
+                }
+                char c = buf[j];
+                if ((c >= 32) && (c != '\\') && (c != 127)) sb.append (c);
+                else switch (c) {
+                    case '\b': sb.append ("\\b"); break;
+                    case '\n': sb.append ("\\n"); break;
+                    case '\r': sb.append ("\\r"); break;
+                    case '\t': sb.append ("\\t"); break;
+                    case '\\': sb.append ("\\\\"); break;
+                    default: {
+                        sb.append ('\\');
+                        for (int i = 9; (i -= 3) >= 0;) {
+                            sb.append ((char) ('0' + ((c >> i) & 7)));
+                        }
+                        break;
+                    }
+                }
+            }
+            WriteDebug ("from host '" + sb.toString () + "'");
+        }*/
+
         // look for control characters in the given text.
         // insert all the other text by appending to existing text.
         // the resulting theWholeText should only contain printables
@@ -291,7 +374,7 @@ public class ScreenTextBuffer {
 
             // if not doing an escape sequence, store char in ring buffer
             if (escseqidx < 0) {
-                Printable (ch);
+                ControlOrPrintable (ch);
             } else {
 
                 // doing escape sequence, store char on end of escape buffer
@@ -307,11 +390,12 @@ public class ScreenTextBuffer {
         }
     }
 
-    private void Printable (char ch)
+    /**
+     * Process an incoming control or printable character not part of an escape sequence.
+     */
+    private void ControlOrPrintable (char ch)
     {
-        if (ch >= 32) {
-            InsertPrintableAtInsertPoint (ch, attrs);
-        } else {
+        if (ch < 32) {
 
             // process the control character
             switch (ch) {
@@ -327,8 +411,9 @@ public class ScreenTextBuffer {
                 // has to work as part of BS/' '/BS sequence to delete last char on line
                 case 8: {
                     if (insertpoint > 0) {
-                        ch = twt[(twb+insertpoint-1)&twm];
-                        if (ch != '\n') {
+                        int bol = BegOfLine (insertpoint);
+                        if (insertpoint > bol) {
+                            ch = twt[(twb+insertpoint-1)&twm];
                             if ((ch == ' ') && (insertpoint == theWholeUsed)) {
                                 -- theWholeUsed;
                             }
@@ -340,12 +425,12 @@ public class ScreenTextBuffer {
 
                 // tab: space to next 8-character position in line
                 case 9: {
-                    int k;
-                    for (k = insertpoint; k > 0; -- k) {
-                        if (twt[(twb+k-1)&twm] == '\n') break;
-                    }
+                    int k = BegOfLine (insertpoint);
                     k = (insertpoint - k) % 8;
-                    IncomingWork (eightspaces, 0, 8 - k);
+                    while (k < 8) {
+                        StorePrintableAtInsertPoint (' ', attrs);
+                        k ++;
+                    }
                     break;
                 }
 
@@ -355,28 +440,32 @@ public class ScreenTextBuffer {
                 case 10:    // line feed
                 case 11:    // vertical tab
                 case 12: {  // form feed
-                    while (insertpoint < theWholeUsed) {
-                        if (twt[(twb+insertpoint)&twm] == '\n') break;
-                        insertpoint ++;
-                    }
-                    if (insertpoint < theWholeUsed) {
-                        insertpoint ++;
+                    if (linefeedmode) {
+                        NextLine ();
+                        scrolledCharsLeft = 0;
                     } else {
-                        OverwriteSomethingAtInsertPoint ('\n', attrs);
+                        int colofs = insertpoint - BegOfLine (insertpoint);
+                        NextLine ();
+                        MoveCursorRight (colofs);
                     }
-                    scrolledCharsLeft = 0;
                     break;
                 }
 
                 // carriage return: backspace to just after most recent newline
                 // has to work as part of CR/LF sequence
                 case 13: {
-                    while (insertpoint > 0) {
-                        ch = twt[(twb+insertpoint-1)&twm];
-                        if (ch == '\n') break;
-                        -- insertpoint;
-                    }
+                    insertpoint = BegOfLine (insertpoint);
                     scrolledCharsLeft = 0;
+                    break;
+                }
+
+                case 14: {  // SO (shift out)
+                    altcharset = true;
+                    break;
+                }
+
+                case 15: {  // SI (shift in)
+                    altcharset = false;
                     break;
                 }
 
@@ -392,122 +481,297 @@ public class ScreenTextBuffer {
                     break;
                 }
             }
+        } else if (ch != 127) {
+            short at = attrs;
+            if (altcharset && (ch >= 0137) && (ch <= 0176)) {
+                // http://unicode-table.com/en
+                switch (ch) {
+                    case 0137: ch = 0x25AF; break;    // open block
+                    case 0140: ch = 0x25C6; break;    // solid diamond
+                    case 0146: ch = 0x00B0; break;    // degree symbol
+                    case 0147: ch = 0x00B1; break;    // plus/minus
+                    case 0171: ch = 0x2264; break;    // less than/equal
+                    case 0172: ch = 0x2265; break;    // greater than/equal
+                    case 0173: ch = 0x03C0; break;    // pi
+                    case 0174: ch = 0x2260; break;    // not equal
+                    case 0175: ch = 0x00A3; break;    // british pounds
+                    case 0176: ch = 0x00B7; break;    // center dot
+
+                    case 0152: ch = 0x2518; break;    // block drawing
+                    case 0153: ch = 0x2510; break;
+                    case 0154: ch = 0x250C; break;
+                    case 0155: ch = 0x2514; break;
+                    case 0156: ch = 0x253C; break;
+                    case 0161: ch = 0x2500; break;
+                    case 0164: ch = 0x251C; break;
+                    case 0165: ch = 0x2524; break;
+                    case 0166: ch = 0x2534; break;
+                    case 0167: ch = 0x252C; break;
+                    case 0170: ch = 0x2502; break;
+
+                    default: at |= TWA_SPCGR; break;  // no unicode equivalent, defer to ScreenTextView
+                }
+            }
+            StorePrintableAtInsertPoint (ch, at);
         }
     }
 
-    // oz_dev_vgavideo_486.c escseqend()
+    /**
+     * Process VT-100 escape sequence in escseqbuf.
+     * http://ascii-table.com/ansi-escape-sequences-vt-100.php
+     * http://www.ccs.neu.edu/research/gpc/MSim/vona/terminal/VT100_Escape_Codes.html
+     */
     private void Escaped ()
     {
         String escseqstr = new String (escseqbuf, 0, escseqidx);
-        //Log.d (TAG, "escape seq '" + escseqstr + "'");
+        //WriteDebug ("escape seq '" + escseqstr + "'");
 
-        char termchr = escseqbuf[--escseqidx];
-        escseqbuf[escseqidx] = 0;
+        int escseqlen = escseqidx;
+        char termchr = escseqbuf[--escseqlen];
         escseqidx = -1;
 
+        // don't bother if we don't know the screen height yet
+        if (screenHeight <= 0) return;
+
         if (escseqbuf[0] != '[') {
-            Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
+            switch (termchr) {
+                case '7': {
+                    savedRowNumber  = GetLineNumber (insertpoint);
+                    savedColNumber  = insertpoint - GetLineOffset (savedRowNumber) + 1;
+                    savedAltCharSet = altcharset;
+                    break;
+                }
+                case '8': {
+                    SetCursorPosition (savedRowNumber, savedColNumber);
+                    altcharset  = savedAltCharSet;
+                    break;
+                }
+                case '=': {
+                    keypadappmode = true;
+                    break;
+                }
+                case '>': {
+                    keypadappmode = false;
+                    break;
+                }
+
+                // go down, if at bottom margin, scroll
+                // stay in same column
+                case 'D': {
+                    int colofs = insertpoint - BegOfLine (insertpoint);
+                    NextLine ();
+                    MoveCursorRight (colofs);
+                    break;
+                }
+
+                // go down, if at bottom margin, scroll
+                // also go to beginning of new line
+                case 'E': {
+                    NextLine ();
+                    break;
+                }
+
+                // go up, if at top margin, scroll
+                // stay in same column
+                case 'M': {
+                    int colofs = insertpoint - BegOfLine (insertpoint);
+                    PrevLine ();
+                    MoveCursorRight (colofs);
+                    break;
+                }
+
+                default: {
+                    Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
+                    break;
+                }
+            }
         } else {
+            String[] parms;
+            try {
+                parms = new String (escseqbuf, 1, escseqlen - 1).split (";");
+            } catch (Exception e) {
+                parms = null;
+            }
             switch (termchr) {
 
                 // [ A - move cursor up
                 case 'A': {
-                    int nlines = EscSeqInt (escseqbuf, 1);
-                    // move temp cursor to beginning of current line
-                    int cur = insertpoint;
-                    while ((cur > 0) && (twt[(twb+cur-1)&twm] != '\n')) -- cur;
-                    // compute the column number it was in
-                    int col = insertpoint - cur;
-                    // move temp cursor backward to beginning of target line
-                    while (cur > 0) {
-                        do -- cur;
-                        while ((cur > 0) && (twt[(twb+cur-1)&twm] != '\n'));
-                        if (-- nlines <= 0) break;
-                    }
-                    // now move it over the original number of columns
-                    insertpoint = cur;
-                    while (-- col >= 0) {
-                        if (twt[(twb+insertpoint)&twm] == '\n') {
-                            InsertPrintableAtInsertPoint (' ', twa[(twb+insertpoint)&twm]);
-                        } else {
-                            insertpoint ++;
-                        }
+                    int nlines = ParseInt (parms[0]);
+                    if (nlines <= 0) nlines = 1;
+
+                    // get line number we are currently on
+                    int currentLineNumber = GetLineNumber (insertpoint);
+                    if (currentLineNumber > 0) {
+
+                        // get beginning of current line
+                        int currentBegOfLine = GetLineOffset (currentLineNumber);
+
+                        // compute current column number (zero based)
+                        int currentColumnNum = insertpoint - currentBegOfLine;
+
+                        // compute target line number
+                        int targetLineNumber = currentLineNumber - nlines;
+                        if (targetLineNumber < topScrollLine) targetLineNumber = topScrollLine;
+
+                        // get beginning of target line
+                        insertpoint = GetLineOffset (targetLineNumber);
+
+                        // now move it over the original number of columns
+                        MoveCursorRight (currentColumnNum);
                     }
                     break;
                 }
 
                 // [ B - move cursor down
                 case 'B': {
-                    int nlines = EscSeqInt (escseqbuf, 1);
-                    // move temp cursor to beginning of current line
-                    int cur = insertpoint;
-                    while ((cur > 0) && (twt[(twb+cur-1)&twm] != '\n')) -- cur;
-                    // compute the column number it was in
-                    int col = insertpoint - cur;
-                    // move cursor forward to beginning of target line
-                    insertpoint = cur;
-                    while (cur < theWholeUsed) {
-                        do cur ++;
-                        while ((cur < theWholeUsed) && (twt[(twb+cur-1)&twm] != '\n'));
-                        if (twt[(twb+cur-1)&twm] != '\n') break;
-                        insertpoint = cur;
-                        if (-- nlines <= 0) break;
-                    }
-                    // now move it over the original number of columns
-                    while (-- col >= 0) {
-                        if (twt[(twb+insertpoint)&twm] == '\n') {
-                            InsertPrintableAtInsertPoint (' ', twa[(twb+insertpoint)&twm]);
-                        } else {
-                            insertpoint ++;
-                        }
+                    int nlines = ParseInt (parms[0]);
+                    if (nlines <= 0) nlines = 1;
+
+                    // get line number we are currently on
+                    int currentLineNumber = GetLineNumber (insertpoint);
+                    if (currentLineNumber > 0) {
+
+                        // get beginning of current line
+                        int currentBegOfLine = GetLineOffset (currentLineNumber);
+
+                        // compute current column number (zero based)
+                        int currentColumnNum = insertpoint - currentBegOfLine;
+
+                        // compute target line number
+                        int targetLineNumber = currentLineNumber + nlines;
+                        if (targetLineNumber > botScrollLine) targetLineNumber = botScrollLine;
+
+                        // get beginning of target line
+                        insertpoint = GetLineOffset (targetLineNumber);
+
+                        // now move it over the original number of columns
+                        MoveCursorRight (currentColumnNum);
                     }
                     break;
                 }
 
                 // [ C - move cursor right
                 case 'C': {
-                    int nchars = EscSeqInt (escseqbuf, 1);
-                    do {
-                        if ((insertpoint >= theWholeUsed) || (twt[(twb+insertpoint)&twm] == '\n')) {
-                            InsertPrintableAtInsertPoint (' ', twa[(twb+insertpoint)&twm]);
-                        } else {
-                            insertpoint ++;
-                        }
-                    } while (-- nchars > 0);
+                    int nchars = ParseInt (parms[0]);
+                    if (nchars <= 0) nchars = 1;
+                    MoveCursorRight (nchars);
                     break;
                 }
 
                 // [ D - move cursor left
                 case 'D': {
-                    int nchars = EscSeqInt (escseqbuf, 1);
-                    do {
-                        if ((insertpoint > 0) && (twt[(twb+insertpoint-1)&twm] != '\n')) {
-                            -- insertpoint;
+                    int nchars = ParseInt (parms[0]);
+                    int bol = BegOfLine (insertpoint);
+                    while (insertpoint > bol) {
+                        -- insertpoint;
+                        if (-- nchars <= 0) break;
+                    }
+                    break;
+                }
+
+                // [ H and [ f - position cursor
+                case 'H':
+                case 'f': {
+                    int row = ParseInt (parms[0]);
+                    int col = (parms.length > 1) ? ParseInt (parms[1]) : 0;
+                    if (originmode) {
+                        row += topScrollLine - 1;
+                    }
+                    SetCursorPosition (row, col);
+                    break;
+                }
+
+                // [ J - erase in display
+                case 'J': {
+                    int currentLineNumber = GetLineNumber (insertpoint);
+                    if (currentLineNumber > 0) {
+                        int code = ParseInt (parms[0]);
+
+                        // 0 or 2: erase characters to end-of-display
+                        //     replace them with newlines of current attributes
+                        if ((code == 0) || (code == 2)) {
+                            theWholeUsed = insertpoint;
+                            while (currentLineNumber < screenHeight) {
+                                twt[(twb+theWholeUsed)&twm] = '\n';
+                                twa[(twb+theWholeUsed)&twm] = attrs;
+                                theWholeUsed ++;
+                                currentLineNumber ++;
+                            }
                         }
-                    } while (-- nchars > 0);
+
+                        // 1 or 2 : erase characters up to and including cursor char
+                        //     replace them with newlines of current attributes
+                        if ((code == 1) || (code == 2)) {
+
+                            // point to beginning of current line
+                            int begOfCurrentOffset = GetLineOffset (currentLineNumber);
+
+                            // overwrite current line up to and including cursor with spaces
+                            for (int i = begOfCurrentOffset; i <= insertpoint; i ++) {
+                                if (twt[(twb+i)&twm] == '\n') break;
+                                twt[(twb+i)&twm] = ' ';
+                                twa[(twb+i)&twm] = attrs;
+                            }
+
+                            // replace lines above current line with newlines
+                            int topOfScreenOffset = GetLineOffset (1);
+                            for (int i = 0; ++ i < currentLineNumber;) {
+                                twt[(twb+topOfScreenOffset)&twm] = '\n';
+                                twa[(twb+topOfScreenOffset)&twm] = attrs;
+                                topOfScreenOffset ++;
+                            }
+
+                            // move stuff starting with current line down over all erased garbage
+                            insertpoint -= begOfCurrentOffset - topOfScreenOffset;
+                            while (begOfCurrentOffset < theWholeUsed) {
+                                int ncopy = theWholeUsed - begOfCurrentOffset;
+                                int tcopy = tws - ((twb + topOfScreenOffset)  & twm);
+                                int bcopy = tws - ((twb + begOfCurrentOffset) & twm);
+                                if (ncopy > tcopy) ncopy = tcopy;
+                                if (ncopy > bcopy) ncopy = bcopy;
+                                System.arraycopy (twt, (twb + begOfCurrentOffset) & twm,
+                                                  twt, (twb + topOfScreenOffset)  & twm, ncopy);
+                                topOfScreenOffset  += ncopy;
+                                begOfCurrentOffset += ncopy;
+                            }
+                            theWholeUsed = topOfScreenOffset;
+                        }
+                    }
                     break;
                 }
 
                 // [ K - erase in line
                 case 'K': {
-                    int code = EscSeqInt (escseqbuf, 1);
+                    int code = ParseInt (parms[0]);
 
                     // 0 or 2 : erase characters to end-of-line
                     //     delete chars starting with cursor up to next newline
                     //     but always leave the next newline intact
                     if ((code == 0) || (code == 2)) {
-                        int i;
-                        for (i = 0; i + insertpoint < theWholeUsed; i ++) {
-                            if (twt[(twb+insertpoint+i)&twm] == '\n') break;
-                        }
-                        DeleteCharsAtInsertPoint (i);
+                        int j = EndOfLine (insertpoint);
 
-                        // set attrs of preceding newline so ScreenTextView knows what
-                        // background color to pad the remainder of this line with
-                        for (i = insertpoint; -- i >= 0;) {
-                            if (twt[(twb+i)&twm] == '\n') {
-                                twa[(twb+i)&twm] = attrs;
-                                break;
+                        // if erasing a beginning or middle segment of a wrapped line,
+                        // overwrite the erased characters with spaces
+                        if ((j < theWholeUsed) && (twt[(twb+j)&twm] != '\n')) {
+                            int k = EndOfLine (j);
+                            while (j < k) {
+                                twt[(twb+j)&twm] = ' ';
+                                twa[(twb+j)&twm] = attrs;
+                                j ++;
+                            }
+                        } else {
+
+                            // erasing to end-of-buffer or to next newline,
+                            // actually remove the chars from the buffer
+                            DeleteCharsAtInsertPoint (j - insertpoint);
+
+                            // set attrs of preceding newline so ScreenTextView knows what
+                            // background color to pad the remainder of this line with
+                            for (int i = insertpoint; -- i >= 0;) {
+                                if (twt[(twb+i)&twm] == '\n') {
+                                    twa[(twb+i)&twm] = attrs;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -517,23 +781,39 @@ public class ScreenTextBuffer {
                     if ((code == 1) || (code == 2)) {
                         int i = insertpoint;
                         if ((i >= 0) && (twt[(twb+i)&twm] != '\n')) i ++;
-                        while (-- i >= 0) {
-                            if (twt[(twb+i)&twm] == '\n') break;
-                            twt[(twb+i)&twm] = ' ';
-                            twa[(twb+i)&twm] = attrs;
+                        for (int j = BegOfLine (i); j < i; j ++) {
+                            twt[(twb+j)&twm] = ' ';
+                            twa[(twb+j)&twm] = attrs;
                         }
+                    }
+                    break;
+                }
+
+                // [ c - what are you?
+                case 'c': {
+                    session.SendStringToHost ("\033[?1;0c");
+                    break;
+                }
+
+                // [ h - enable something
+                // [ l - disable something
+                case 'h':
+                case 'l': {
+                    boolean set = (termchr == 'h');
+                    for (String s : parms) {
+                             if (s.equals ("20")) linefeedmode  = set;
+                        else if (s.equals ("?1")) cursorappmode = set;
+                        else if (s.equals ("?6")) originmode    = set;
+                        else if (s.equals ("?7")) hardwrapmode  = set;
+                        else Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
                     }
                     break;
                 }
 
                 // [ m - select graphic rendition
                 case 'm': {
-                    for (int i = 0; escseqbuf[i] != 0;) {
-                        char c;
-                        int n = 0;
-                        while (((c = escseqbuf[++i]) >= '0') && (c <= '7')) {
-                            n = n * 8 + c - '0';
-                        }
+                    for (String s : parms) {
+                        int n = ParseInt (s);
                         switch (n) {
                             case 0: {
                                 attrs = RESET_ATTRS;
@@ -555,18 +835,52 @@ public class ScreenTextBuffer {
                                 attrs |= TWA_REVER;
                                 break;
                             }
-                            case 030:case 031:case 032:case 033:case 034:case 035:case 036:case 037: {
+                            case 30:case 31:case 32:case 33:case 34:case 35:case 36:case 37: {
                                 attrs &= ~TWA_FGCLR;
-                                attrs |= (TWA_FGCLR & -TWA_FGCLR) * (n - 030);
+                                attrs |= (TWA_FGCLR & -TWA_FGCLR) * (n - 30);
                                 break;
                             }
-                            case 040:case 041:case 042:case 043:case 044:case 045:case 046:case 047: {
+                            case 40:case 41:case 42:case 43:case 44:case 45:case 46:case 47: {
                                 attrs &= ~TWA_BGCLR;
-                                attrs |= (TWA_BGCLR & -TWA_BGCLR) * (n - 040);
+                                attrs |= (TWA_BGCLR & -TWA_BGCLR) * (n - 40);
                                 break;
                             }
+                            default: Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
                         }
                     }
+                    break;
+                }
+
+                // [ n - device status report
+                case 'n': {
+                    int param = ParseInt (parms[0]);
+                    switch (param) {
+                        case 5: {
+                            session.SendStringToHost ("\033[0n");
+                            break;
+                        }
+                        case 6: {
+                            int row = GetLineNumber (insertpoint);
+                            int col = insertpoint - GetLineOffset (row) + 1;
+                            if (originmode) {
+                                row -= topScrollLine - 1;
+                            }
+                            session.SendStringToHost ("\033[" + row + ";" + col + "R");
+                        }
+                        default: Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
+                    }
+                    break;
+                }
+
+                // [ r - set scrolling region
+                case 'r': {
+                    topScrollLine = ParseInt (parms[0]);
+                    botScrollLine = (parms.length > 1) ? ParseInt (parms[1]) : screenHeight;
+                    if (topScrollLine <  1) topScrollLine = 1;
+                    if (topScrollLine >= screenHeight) topScrollLine = screenHeight - 1;
+                    if (botScrollLine <= topScrollLine) botScrollLine = topScrollLine + 1;
+                    if (botScrollLine >  screenHeight) botScrollLine = screenHeight;
+                    SetCursorPosition (originmode ? topScrollLine : 1, 1);
                     break;
                 }
 
@@ -578,96 +892,449 @@ public class ScreenTextBuffer {
         }
     }
 
-    private static int EscSeqInt (char[] escseqbuf, int offset)
+    /**
+     * Decode a single integer parameter for the escape sequence.
+     */
+    private static int ParseInt (String s)
     {
-        int n = 0;
-        char c;
-        while (((c = escseqbuf[offset++]) >= '0') && (c <= '9')) n = n * 10 + c - '0';
-        return n;
+        try {
+            return Integer.parseInt (s);
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     /**
-     * @brief Insert a printable character at the cursor position and increment cursor.
-     * @param ch = character to store
-     * @param at = corresponding attributes
+     * Move cursor down one line.  If at bottom margin, scroll.
+     * Then move to beginning of the new line.
      */
-    private void InsertPrintableAtInsertPoint (char ch, short at)
+    private void NextLine ()
     {
-        // the only time we really do an insert is if we would overwrite a newline
-        if ((insertpoint < theWholeUsed) && (twt[(twb+insertpoint)&twm] == '\n')) {
+        // move cursor just past last char of current line,
+        // not moving it at all if it's already there.
+        // we might end up pointing at:
+        // 1) the end of the ring buffer
+        // 2) a newline char
+        insertpoint = EndOfLine (insertpoint);
 
-            // if the ring buffer is completely full, remove the oldest char
-            if (theWholeUsed >= tws) {
+        // see if at end of ring buffer or on last line of scroll region
+        if ((insertpoint >= theWholeUsed) || ((screenHeight > 0) && (GetLineNumber (insertpoint) == botScrollLine))) {
 
-                // pop oldest char by incrementing base index
-                twb = (twb + 1) & twm;
+            // scrolling required...
 
-                // now there is one fewer character in ring
-                -- theWholeUsed;
+            // insert a newline to give us a new blank line
+            // and increment cursor to put it at beginning of that new blank line
+            InsertSomethingAtInsertPoint ('\n', attrs);
 
-                // if the new char was going where the old one was popped,
-                // we're done as is cuz we just popped the new char too
-                if (insertpoint <= 0) return;
+            // because GetLineNumber() counts from the end backward,
+            // it should think we are on the same line number because we
+            // are still pointing at the same char as was returned by the
+            // EndOfLine() call above.
 
-                // somewhere farther down in ring, point to same char in ring
-                -- insertpoint;
+            // but there is one more line above us now on the screen.
+            // if the top scroll is other than the first line, we need
+            // to delete the top scroll line from the screen.
+            if (topScrollLine > 1) {
+                int delbeg = GetLineOffset (topScrollLine - 1);
+                int delend = GetLineOffset (topScrollLine);
+                DeleteCharsAtArbitraryPoint (delbeg, delend);
             }
-
-            // move everything starting with the newline down one spot to make room
-            for (int i = ++ theWholeUsed; -- i > insertpoint;) {
-                twt[(twb+i)&twm] = twt[(twb+i-1)&twm];
-                twa[(twb+i)&twm] = twa[(twb+i-1)&twm];
-            }
-
-            // overwrite the newline with the new character and attributes
-            twt[(twb+insertpoint)&twm] = ch;
-            twa[(twb+insertpoint)&twm] = at;
-
-            // advance cursor past new character
-            insertpoint ++;
         } else {
 
-            // overwrite existing printable with another printable
-            // we might also be extending onto end of ring buffer
-            OverwriteSomethingAtInsertPoint (ch, at);
+            // no scrolling required
+            // we are pointing to the newline at the end of this line
+            // - so we need to hop over the newline to get to next line
+            insertpoint ++;
         }
     }
 
     /**
-     * @brief Overwrite the character at the insert point.
-     *        But if at end of ring buffer, extend ring one char.
+     * Move cursor up one line.  If at top margin, scroll.
+     * Then move to beginning of new line.
+     */
+    private void PrevLine ()
+    {
+        // move cursor to beginning of current line,
+        // not moving at all if it's already there.
+        // we might end up pointing at:
+        // 1) the beginning of the ring buffer
+        // 2) just past a newline ending the line above us
+        insertpoint = BegOfLine (insertpoint);
+
+        // see if at beginning of ring buffer or on first line of scroll region
+        if ((insertpoint <= 0) || ((screenHeight > 0) && (GetLineNumber (insertpoint) == topScrollLine))) {
+
+            // scrolling required...
+
+            //  topScrollLine-1: abc<LF>
+            //  topScrollLine:   def<LF>
+            //       . . .
+            //  botScrollLine-1: uvw<LF>
+            //  botScrollLine:   xyz
+
+            //  insertpoint points to the 'd' of topScrollLine
+
+            // insert a newline just before the beginning of this line
+            // then point to that newline
+            InsertSomethingAtInsertPoint ('\n', attrs);
+            -- insertpoint;
+
+            //  topScrollLine-2: abc<LF>
+            //  topScrollLine-1: <LF>
+            //  topScrollLine:   def<LF>
+            //       . . .
+            //  botScrollLine-1: uvw<LF>
+            //  botScrollLine:   xyz
+
+            //  insertpoint points to the '<LF>' of topScrollLine-1
+
+            // delete the botScrollLine, eg, <LF>xyz from the above example
+            int delbeg = EndOfLine (GetLineOffset (botScrollLine - 1));
+            int delend = EndOfLine (GetLineOffset (botScrollLine));
+            DeleteCharsAtArbitraryPoint (delbeg, delend);
+
+            //  topScrollLine-1: abc<LF>
+            //  topScrollLine:   <LF>
+            //  topScrollLine+1: def<LF>
+            //       . . .
+            //  botScrollLine:   uvw
+
+            //  insertpoint still points to the lone '<LF>' but it's now at topScrollLine
+
+        } else {
+
+            // no scrolling required
+            // we are pointing just past the newline at the end of the previous line
+            // - so we need to hop over the newline to get to previous line
+            insertpoint = BegOfLine (-- insertpoint);
+        }
+    }
+
+    /**
+     * Move cursor to given absolute row and column.
+     */
+    private void SetCursorPosition (int row, int col)
+    {
+        if (screenHeight > 0) {
+            if (row <= 0) row = 1;
+            if (col <= 0) col = 1;
+
+            // put cursor at beginning of requested line
+            if (row > screenHeight) row = screenHeight;
+            insertpoint = GetLineOffset (row);
+
+            // move cursor to the right for desired column
+            MoveCursorRight (col - 1);
+        }
+    }
+
+    /**
+     * Move cursor (insertpoint) right on current line the given number of columns.
+     * Extend the ring buffer if necessary.
+     */
+    private void MoveCursorRight (int ncols)
+    {
+        while (-- ncols >= 0) {
+
+            // if about to step over a newline, insert a space at this point
+            // use attrs of preceding newline cuz that is what line gets for background color
+            if ((insertpoint >= theWholeUsed) || (twt[(twb+insertpoint)&twm] == '\n')) {
+                int bol = BegOfLine (insertpoint);
+                short at = (bol > 0) ? twa[(twb+bol-1)&twm] : RESET_ATTRS;
+                InsertSomethingAtInsertPoint (' ', at);
+            } else {
+
+                // about to space over a printable, just step over it
+                insertpoint ++;
+            }
+        }
+    }
+
+    /**
+     * Store a printable character (not newline) at the cursor position and increment cursor.
+     * Break up long lines if hardwrap enabled.
      * @param ch = character to store
      * @param at = corresponding attributes
      */
-    private void OverwriteSomethingAtInsertPoint (char ch, short at)
+    private void StorePrintableAtInsertPoint (char ch, short at)
     {
-        int index  = (twb + insertpoint) & twm;
-        twt[index] = ch;                    // store char at insert point
-        twa[index] = at;                    // ...along with current attributes
-        if (insertpoint < theWholeUsed) {   // if we are overwriting stuff on the existing line,
-            insertpoint ++;                 //     (eg, it has been BS/CR'd), just inc index
-        } else if (theWholeUsed < tws) {    // append, if array hasn't been filled yet,
-            theWholeUsed = ++ insertpoint;  //     extend it by one character
-        } else {                            // otherwise, we just overwrote the oldest char in ring,
-            twb = (twb + 1) & twm;          //     increment index base
+        // maybe simply overwriting existing printable with the given printable
+        int i = (twb + insertpoint) & twm;
+        if ((insertpoint < theWholeUsed) && (twt[i] != '\n')) {
+            twt[i] = ch;
+            twa[i] = at;
+            insertpoint ++;
+            return;
+        }
+
+        // about to write onto the end of an existing line
+
+        // if indefinite width display, just insert character on end of existing line
+        if (!hardwrapsetting || (lineWidth <= 0)) {
+            InsertSomethingAtInsertPoint (ch, at);
+            return;
+        }
+
+        // fixed width display, just insert character on end if line is short enough
+        int bol = BegOfLine (insertpoint);
+        if (insertpoint - bol < lineWidth) {
+            InsertSomethingAtInsertPoint (ch, at);
+            return;
+        }
+
+        // line is full width, insert <LF>char if in hardwrap mode
+        // otherwise discard the new char
+        if (hardwrapmode) {
+            if (insertpoint < theWholeUsed) {
+
+                // there is already an <LF> in the ring at insertpoint,
+                // so just step over it then store character just after it.
+                insertpoint ++;
+                StorePrintableAtInsertPoint (ch, at);
+            } else {
+
+                // end of existing ring buffer, tack a newline and character on the end
+                InsertSomethingAtInsertPoint ('\n', at);
+                InsertSomethingAtInsertPoint (ch, at);
+            }
         }
     }
 
     /**
-     * @brief Delete the given number of characters starting at the insert point.
+     * Insert character at insert point and increment pointer past it.
+     * Extend ring buffer as needed or drop oldest char if necessary.
+     * @param ch = character to store
+     * @param at = corresponding attributes
+     */
+    private void InsertSomethingAtInsertPoint (char ch, short at)
+    {
+        // if the ring buffer is completely full, remove the oldest char
+        if (theWholeUsed >= tws) {
+
+            // pop oldest char by incrementing base index
+            twb = (twb + 1) & twm;
+
+            // now there is one fewer character in ring
+            -- theWholeUsed;
+
+            // if the new char was going where the old one was popped,
+            // we're done as is cuz we just popped the new char too
+            if (insertpoint <= 0) return;
+
+            // somewhere farther down in ring, point to same char in ring
+            -- insertpoint;
+        }
+
+        // move everything down one spot to make room
+        for (int i = ++ theWholeUsed; -- i > insertpoint;) {
+            twt[(twb+i)&twm] = twt[(twb+i-1)&twm];
+            twa[(twb+i)&twm] = twa[(twb+i-1)&twm];
+        }
+
+        // stpre new character and attributes
+        twt[(twb+insertpoint)&twm] = ch;
+        twa[(twb+insertpoint)&twm] = at;
+
+        // advance cursor past new character
+        insertpoint ++;
+    }
+
+    /**
+     * Delete the given number of characters starting at the insert point.
      */
     private void DeleteCharsAtInsertPoint (int nch)
     {
+        DeleteCharsAtArbitraryPoint (insertpoint, insertpoint + nch);
+    }
+
+    private void DeleteCharsAtArbitraryPoint (int delbeg, int delend)
+    {
+        int nch = delend - delbeg;
         if (nch > 0) {
             theWholeUsed -= nch;
             int twu = theWholeUsed;
-            for (int i = insertpoint; i < twu; i ++) {
+            for (int i = delbeg; i < twu; i ++) {
                 twt[(twb+i)&twm] = twt[(twb+i+nch)&twm];
                 twa[(twb+i)&twm] = twa[(twb+i+nch)&twm];
+            }
+            if (insertpoint >= delend) insertpoint -= nch;
+        }
+    }
+
+    /**
+     * Get offset at beginning of the given visible line
+     * @param lineno = visible line number (1..screenHeight)
+     * @return offset of first character of the line
+     */
+    private int GetLineOffset (int lineno)
+    {
+        if (screenHeight > 0) {
+
+            // screen line number being scanned (1..screenHeight)
+            int i = screenHeight;
+
+            // scan through ring buffer starting from the end
+            for (int j = theWholeUsed; j > 0; -- j) {
+
+                // see if this is first char of line
+                if (twt[(twb+j-1)&twm] == '\n') {
+
+                    // j = first char of line
+
+                    // if this is the line requested, return its start index
+                    if (i == lineno) return j;
+
+                    // not the requested line, start scanning previous line
+                    -- i;
+                }
+            }
+
+            // if ring buffer holds 'abcd', ie, just one line of text
+            //     and screenHeight = 3 (i is also 3 cuz 'abcd' doesn't have any newlines)
+            //     and lineno = 1,
+            // prepend 2 newlines to ring buffer
+            while ((i > lineno) && (theWholeUsed < tws)) {
+                if (twb == 0) twb = tws;
+                twt[--twb] = '\n';
+                twa[twb] = RESET_ATTRS;
+                theWholeUsed ++;
+                insertpoint ++;
+                -- i;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Compute the visible line number of a given character in the buffer.
+     * @param offset = which character to find line number of
+     * @return .le.0: not in visible area
+     *          else: line number in range 1..screenHeight
+     */
+    private int GetLineNumber (int offset)
+    {
+        if (screenHeight <= 0) return 0;
+
+        int i = screenHeight;
+        for (int j = theWholeUsed; j > 0; -- j) {
+            if (twt[(twb+j-1)&twm] == '\n') {
+                if (j <= offset) return i;
+                -- i;
+            }
+        }
+        return i;
+    }
+
+    /**
+     * Get offset at end of line (just past last printable character of line)
+     * @param o = offset somewhere in line (maybe already at beginning)
+     * @return offset at end of line (maybe offset of the newline)
+     */
+    private int EndOfLine (int o)
+    {
+        while (o < theWholeUsed) {
+            if (twt[(twb+o)&twm] == '\n') break;
+            o ++;
+        }
+        return o;
+    }
+
+    /**
+     * Get offset at beginning of line (first printable character of line)
+     * @param o = offset somewhere in line (maybe already at beginning)
+     * @return offset at beginning of line (maybe right after prev line's newline)
+     */
+    private int BegOfLine (int o)
+    {
+        while (o > 0) {
+            if (twt[(twb+o-1)&twm] == '\n') break;
+            -- o;
+        }
+        return o;
+    }
+
+    /*
+    private void DumpRingBuffer ()
+    {
+        WriteDebug ("DumpRingBuffer: insertpoint=" + insertpoint + " theWholeUsed=" + theWholeUsed);
+        int j;
+        for (int i = 0; i < theWholeUsed; i = ++ j) {
+            StringBuilder sb = new StringBuilder ();
+            for (j = i; j < theWholeUsed; j ++) {
+                char c = twt[(twb+j)&twm];
+                if (c == '\n') {
+                    sb.append ("<LF>");
+                    break;
+                }
+                if (hardwrapmode && (lineWidth > 0) && (j > i) && ((j - i) % lineWidth == 0)) {
+                    sb.append ('|');
+                }
+                sb.append (c);
+            }
+            int l = GetLineNumber (i);
+            WriteDebug ("DumpRingBuffer:" + IntStr (i, 6) + ":" + IntStr (l, 5) + ": <" + sb.toString () + ">");
+        }
+        j = 0;
+        for (int i = 0; i <= theWholeUsed; i ++) {
+            int k = GetLineNumber (i);
+            if (j < k) {
+                WriteDebug ("DumpRingBuffer:" + IntStr (k, 5) + ":" + IntStr (i, 6));
+                j = k;
             }
         }
     }
 
+    private void RenderAsciiArt ()
+    {
+        for (int i = 0; ++ i <= screenHeight;) {
+            int begofs = -999;
+            int endofs = -999;
+            int begidx = -999;
+            int endidx = -999;
+            try {
+                begofs = GetLineOffset (i);
+                endofs = EndOfLine (begofs);
+                begidx = (begofs + twb) & twm;
+                endidx = (endofs + twb - 1) & twm;
+                if ((endofs == begofs) || (endidx >= begidx)) {
+                    WriteDebug ("AsciiArt" + IntStr (i, 3) + IntStr (begidx, 6) + ".." + IntStr (endidx, 6) + " <" +
+                            new String (twt, begidx, endofs - begofs) + ">");
+                } else {
+                    WriteDebug ("AsciiArt" + IntStr (i, 3) + IntStr (begidx, 6) + ".." + IntStr (endidx, 6) + " <" +
+                            new String (twt, begidx, tws - begidx) + new String (twt, 0, endidx - twm) + ">");
+                }
+            } catch (Exception e) {
+                WriteDebug ("AsciiArt" + IntStr (i, 3) + IntStr (begidx, 6) + ".." + IntStr (endidx, 6) + " " + e.getMessage ());
+            }
+        }
+    }
+
+    private static String IntStr (int v, int l)
+    {
+        String s = Integer.toString (v);
+        while (s.length () < l) s = " " + s;
+        return s;
+    }
+
+    private static java.io.PrintWriter pwdebug;
+    private static void WriteDebug (String line)
+    {
+        if (pwdebug == null) {
+            try {
+                pwdebug = new java.io.PrintWriter ("/sdcard/screentextbuffer.log");
+            } catch (java.io.IOException ioe) {
+                Log.w (TAG, "error creating /sdcard/screentextbuffer.log", ioe);
+                return;
+            }
+        }
+        pwdebug.println (line);
+        pwdebug.flush ();
+    }
+    */
+
+    /**
+     * Get background and foreground color from attributes.
+     */
     public static int BGColor (int at)
     {
         return colorTable[(at&ScreenTextBuffer.TWA_BGCLR)/(ScreenTextBuffer.TWA_BGCLR&-ScreenTextBuffer.TWA_BGCLR)];

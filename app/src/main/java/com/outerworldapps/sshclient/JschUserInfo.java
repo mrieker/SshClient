@@ -52,7 +52,7 @@ public class JschUserInfo implements UserInfo {
     // Prompts the user for the passphrase to the private key.
     public boolean promptPassphrase (String message)
     {
-        session.ScreenMsg ("...prompting for passphrase\n");
+        session.ScreenMsg ("...prompting for passphrase\r\n");
         String[] ret = DialogStringPrompt ("SSH Passphrase Prompt", message, null, "");
         passphrase = ret[0];
         return passphrase != null;
@@ -63,12 +63,12 @@ public class JschUserInfo implements UserInfo {
     public boolean promptPassword (String message)
     {
         if (dbpassword != null) {
-            session.ScreenMsg ("...trying saved password\n");
+            session.ScreenMsg ("...trying saved password\r\n");
             password     = dbpassword;  // password from the database
             savePassword = true;        // save it back to database if it is still good
             dbpassword   = null;        // only try it once
         } else {
-            session.ScreenMsg ("...prompting for password\n");
+            session.ScreenMsg ("...prompting for password\r\n");
             String[] ret = DialogStringPrompt ("SSH Password Prompt", message, "Save password", "");
             password     = ret[0];
             savePassword = (ret[1] != null) && ((ret[1].charAt (0) & 1) != 0);

@@ -189,16 +189,16 @@ public class ScreenDataThread extends Thread {
 
             try {
                 // open shell channel
-                screenTextBuffer.ScreenMsg ("\n[" + hhmmssNow () + "] opening shell\n");
+                screenTextBuffer.ScreenMsg ("\r\n[" + hhmmssNow () + "] opening shell\r\n");
                 channel = (ChannelShell)jsession.openChannel ("shell");
-                screenTextBuffer.ScreenMsg ("...creating streams\n");
+                screenTextBuffer.ScreenMsg ("...creating streams\r\n");
                 input   = new InputStreamReader  (channel.getInputStream  ());
                 output  = new OutputStreamWriter (channel.getOutputStream ());
-                screenTextBuffer.ScreenMsg ("...setting pty type '" + ptyType + "'\n");
+                screenTextBuffer.ScreenMsg ("...setting pty type '" + ptyType + "'\r\n");
                 channel.setPtyType (ptyType);
-                screenTextBuffer.ScreenMsg ("...connecting shell\n");
+                screenTextBuffer.ScreenMsg ("...connecting shell\r\n");
                 channel.connect ();
-                screenTextBuffer.ScreenMsg ("...connected\n");
+                screenTextBuffer.ScreenMsg ("...connected\r\n");
 
                 // read screen data from host and send it to screen
                 char[] buf = new char[4096];
@@ -208,16 +208,16 @@ public class ScreenDataThread extends Thread {
                 }
             } catch (Exception e) {
                 Log.w (TAG, "receive error", e);
-                screenTextBuffer.ScreenMsg ("\n[" + hhmmssNow () + "] receive error: " + SshClient.GetExMsg (e) + "\n");
+                screenTextBuffer.ScreenMsg ("\r\n[" + hhmmssNow () + "] receive error: " + SshClient.GetExMsg (e) + "\r\n");
             }
 
             // end of shell channel, display message
             if (!terminated) {
-                screenTextBuffer.ScreenMsg ("\n[" + hhmmssNow () + "] shell closed\n");
+                screenTextBuffer.ScreenMsg ("\r\n[" + hhmmssNow () + "] shell closed\r\n");
                 screenTextBuffer.ScreenMsg (
                     jsession.isConnected () ?
-                            "  menu/more/shell to re-open\n  menu/more/disconnect or EXIT to disconnect\n" :
-                            "  menu/more/disconnect then reconnect to re-open\n"
+                            "  menu/more/shell to re-open\r\n  menu/more/disconnect or EXIT to disconnect\r\n" :
+                            "  menu/more/disconnect then reconnect to re-open\r\n"
                 );
             }
 
