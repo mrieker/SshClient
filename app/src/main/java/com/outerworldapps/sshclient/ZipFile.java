@@ -20,6 +20,8 @@
 
 package com.outerworldapps.sshclient;
 
+import android.support.annotation.NonNull;
+
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,11 +65,6 @@ public class ZipFile implements ZipConstants {
         readCentralDir ();
     }
 
-    @Override
-    protected void finalize() throws IOException {
-        close();
-    }
-
     /**
      * Closes this ZIP file. This method is idempotent.
      *
@@ -75,10 +72,9 @@ public class ZipFile implements ZipConstants {
      *             if an IOException occurs.
      */
     public void close() throws IOException {
-        RAInputStream raf = mRaf;
-
-        if (raf != null) { // Only close initialized instances
-            synchronized(raf) {
+        synchronized (this) {
+            RAInputStream raf = mRaf;
+            if (raf != null) { // Only close initialized instances
                 mRaf = null;
                 raf.close();
             }
@@ -150,13 +146,12 @@ public class ZipFile implements ZipConstants {
         /*
          * Create a ZipInputStream at the right part of the file.
          */
-        RAInputStream raf = mRaf;
-        synchronized (raf) {
+        synchronized (this) {
             // We don't know the entry data's start position. All we have is the
             // position of the entry's local header. At position 28 we find the
             // length of the extra data. In some cases this length differs from
             // the one coming in the central header.
-            RAFStream rafstrm = new RAFStream(raf,
+            RAFStream rafstrm = new RAFStream(mRaf,
                     entry.mLocalHeaderRelOffset + 28);
             int loLELOW = rafstrm.read () & 0xFF;
             int hiLELOW = rafstrm.read () & 0xFF;
@@ -308,9 +303,9 @@ public class ZipFile implements ZipConstants {
      */
     static class RAFStream extends InputStream {
 
-        RAInputStream mSharedRaf;
-        long mOffset;
-        long mLength;
+        private final RAInputStream mSharedRaf;
+        private long mOffset;
+        private long mLength;
 
         public RAFStream(RAInputStream raf, long pos) throws IOException {
             mSharedRaf = raf;
@@ -334,7 +329,7 @@ public class ZipFile implements ZipConstants {
         }
 
         @Override
-        public int read(byte[] b, int off, int len) throws IOException {
+        public int read(@NonNull byte[] b, int off, int len) throws IOException {
             synchronized (mSharedRaf) {
                 mSharedRaf.seek(mOffset);
                 if (len > mLength - mOffset) {

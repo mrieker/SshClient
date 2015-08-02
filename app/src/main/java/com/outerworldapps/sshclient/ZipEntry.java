@@ -62,24 +62,6 @@ public class ZipEntry implements ZipConstants, Cloneable {
     public static final int STORED = 0;
 
     /**
-     * Constructs a new {@code ZipEntry} with the specified name.
-     *
-     * @param name
-     *            the name of the ZIP entry.
-     * @throws IllegalArgumentException
-     *             if the name length is outside the range (> 0xFFFF).
-     */
-    public ZipEntry(String name) {
-        if (name == null) {
-            throw new NullPointerException();
-        }
-        if (name.length() > 0xFFFF) {
-            throw new IllegalArgumentException();
-        }
-        this.name = name;
-    }
-
-    /**
      * Gets the comment for this {@code ZipEntry}.
      *
      * @return the comment for this {@code ZipEntry}, or {@code null} if there
@@ -88,25 +70,6 @@ public class ZipEntry implements ZipConstants, Cloneable {
      */
     public String getComment() {
         return comment;
-    }
-
-    /**
-     * Gets the compressed size of this {@code ZipEntry}.
-     *
-     * @return the compressed size, or -1 if the compressed size has not been
-     *         set.
-     */
-    public long getCompressedSize() {
-        return compressedSize;
-    }
-
-    /**
-     * Gets the checksum for this {@code ZipEntry}.
-     *
-     * @return the checksum, or -1 if the checksum has not been set.
-     */
-    public long getCrc() {
-        return crc;
     }
 
     /**
@@ -185,32 +148,6 @@ public class ZipEntry implements ZipConstants, Cloneable {
     public void setComment(String string) {
         if (string == null || string.length() <= 0xFFFF) {
             comment = string;
-        } else {
-            throw new IllegalArgumentException();
-        }
-    }
-
-    /**
-     * Sets the compressed size for this {@code ZipEntry}.
-     *
-     * @param value
-     *            the compressed size (in bytes).
-     */
-    public void setCompressedSize(long value) {
-        compressedSize = value;
-    }
-
-    /**
-     * Sets the checksum for this {@code ZipEntry}.
-     *
-     * @param value
-     *            the checksum for this entry.
-     * @throws IllegalArgumentException
-     *             if {@code value} is < 0 or > 0xFFFFFFFFL.
-     */
-    public void setCrc(long value) {
-        if (value >= 0 && value <= 0xFFFFFFFFL) {
-            crc = value;
         } else {
             throw new IllegalArgumentException();
         }
@@ -296,37 +233,6 @@ public class ZipEntry implements ZipConstants, Cloneable {
     @Override
     public String toString() {
         return name;
-    }
-
-    /**
-     * Constructs a new {@code ZipEntry} using the values obtained from {@code
-     * ze}.
-     *
-     * @param ze
-     *            the {@code ZipEntry} from which to obtain values.
-     */
-    public ZipEntry(ZipEntry ze) {
-        name = ze.name;
-        comment = ze.comment;
-        time = ze.time;
-        size = ze.size;
-        compressedSize = ze.compressedSize;
-        crc = ze.crc;
-        compressionMethod = ze.compressionMethod;
-        modDate = ze.modDate;
-        extra = ze.extra;
-        nameLen = ze.nameLen;
-        mLocalHeaderRelOffset = ze.mLocalHeaderRelOffset;
-    }
-
-    /**
-     * Returns a shallow copy of this entry.
-     *
-     * @return a copy of this entry.
-     */
-    @Override
-    public Object clone() {
-        return new ZipEntry(this);
     }
 
     /**

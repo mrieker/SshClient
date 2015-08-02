@@ -138,7 +138,7 @@ public abstract class IFile {
         @Override
         public String getMessage ()
         {
-            StringBuffer sb = new StringBuffer ();
+            StringBuilder sb = new StringBuilder ();
             sb.append (super.getMessage ());
             sb.append (' ');
             sb.append (getAbsolutePath ());

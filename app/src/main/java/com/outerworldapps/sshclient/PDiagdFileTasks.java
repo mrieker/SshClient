@@ -53,17 +53,17 @@ public class PDiagdFileTasks {
     public interface CopyMoveDelTask {
         // create a GUI element that gets transfer progress updates
         // then calls finished when the transfer completes
-        public View createGUI (Context ctx, IFinished finished);
+        View createGUI (Context ctx, IFinished finished);
 
         // don't post any progress updates to the GUI until createGUI() called again
         // and don't call finished() either until createGUI() called again
-        public void deleteGUI ();
+        void deleteGUI ();
 
         // retrieve current GUI (or null if detached)
-        public View currentGUI ();
+        View currentGUI ();
 
         // abort it asap, being disconnected
-        public void abortabort ();
+        void abortabort ();
     }
 
     public interface IFinished {

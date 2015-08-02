@@ -29,6 +29,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.os.Handler;
 import android.os.Message;
+import android.support.annotation.NonNull;
 import android.text.InputType;
 import android.view.KeyEvent;
 import android.view.View;
@@ -40,9 +41,6 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import com.jcraft.jsch.ChannelShell;
-
-import java.io.OutputStreamWriter;
 import java.util.TreeMap;
 
 public class ScreenDataHandler extends Handler {
@@ -66,10 +64,9 @@ public class ScreenDataHandler extends Handler {
         sshclient = ms.getSshClient ();
     }
 
-    public void dispatchMessage (Message msg)
+    public void dispatchMessage (@NonNull Message msg)
     {
         HostNameText hostnametext = session.getHostnametext ();
-        ScreenDataThread screendatathread = session.getScreendatathread ();
         ScreenTextView screentextview = session.getScreentextview ();
 
         switch (msg.what) {

@@ -28,11 +28,12 @@ import android.os.Handler;
 import android.os.Message;
 
 public abstract class DetachableAsyncTask<Params,Progress,Result> implements Handler.Callback, Runnable {
+    private final Object sendLock = new Object ();
+
     private boolean finished;           // thread finished
     private boolean progress;           // progress posted
     private Handler handler;            // handler while attached; null while detached
     private int sequence;               // number of times attached + detached
-    private Object sendLock = new Object ();
     private Params[] paramArray;        // parameters to pass to doInBackground()
     private Progress[] valuesArray;     // latest parameters to pass to onProgressUpdate()
     private Result result;              // result to pass to onPostExecute ()
@@ -41,7 +42,7 @@ public abstract class DetachableAsyncTask<Params,Progress,Result> implements Han
     /**
      * Start executing the thread.
      */
-    public final void execute (Params... params)
+    public final void execute (Params[] params)
     {
         onPreExecute ();            // setup in GUI thread
         paramArray = params;        // save parameters for doInBackground()
@@ -83,8 +84,8 @@ public abstract class DetachableAsyncTask<Params,Progress,Result> implements Han
      * Implementation can override these.
      */
     protected void onPreExecute () { }
-    protected abstract Result doInBackground (Params... params);
-    protected void onProgressUpdate (Progress... values) { }
+    protected abstract Result doInBackground (Params[] params);
+    protected void onProgressUpdate (Progress[] values) { }
     protected void onPostExecute (Result result) { }
 
     /**
@@ -108,7 +109,7 @@ public abstract class DetachableAsyncTask<Params,Progress,Result> implements Han
      * doInBackground() calls this to publish progress which
      * calls onProgressUpdate() in GUI thread when attached.
      */
-    protected final void publishProgress (Progress... values)
+    protected final void publishProgress (Progress[] values)
     {
         synchronized (sendLock) {
             valuesArray = values;

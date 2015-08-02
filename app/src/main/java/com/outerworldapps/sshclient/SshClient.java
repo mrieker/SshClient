@@ -27,6 +27,7 @@ package com.outerworldapps.sshclient;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
@@ -60,10 +61,10 @@ public class SshClient extends Activity {
 
     // what to do when back button pressed
     public interface BackAction {
-        public boolean okToPop ();    // it is ok to pop this page
-        public void reshow ();        // how to reshow this page
-        public String name ();        // unique name for this page
-        public MySession session ();  // null if this page doesn't set session
+        boolean okToPop ();    // it is ok to pop this page
+        void reshow ();        // how to reshow this page
+        String name ();        // unique name for this page
+        MySession session ();  // null if this page doesn't set session
     }
 
     private AlertDialog currentMenuDialog;        // currently displayed AlertDialog (if needed by its callbacks)
@@ -77,6 +78,7 @@ public class SshClient extends Activity {
     private LinkedList<BackAction> backActionStack = new LinkedList<BackAction> ();
     private LinkedList<MySession> allsessions = new LinkedList<MySession> ();
     private MasterPassword masterPassword;
+    private Menu mainMenu;
     private MyHostKeyRepo myhostkeyrepo;          // holds list of known hosts
     private MySession currentsession;             // session currently selected by user
     private NetworkInterfacesView networkInterfacesView;
@@ -92,7 +94,6 @@ public class SshClient extends Activity {
     public LinkedList<MySession> getAllsessions () { return allsessions; }
     public MasterPassword getMasterPassword () { return masterPassword; }
     public MyHostKeyRepo getMyhostkeyrepo () { return myhostkeyrepo; }
-    public MySession getCurrentsession () { return currentsession; }
     public int getNextSessionNumber () { return ++ lastSessionNumber; }
     public void setLastSessionNumber (int sn) { if (lastSessionNumber < sn) lastSessionNumber = sn; }
     public SavedLogins getSavedlogins () { return savedlogins; }
@@ -100,7 +101,6 @@ public class SshClient extends Activity {
     public String getKnownhostsfilename () { return knownhostsfilename; }
     public String getPrivatekeyfilename (String ident) { return privatekeywildname.replace ("*", ident); }
     public String getPublickeyfilename  (String ident) { return publickeywildname.replace  ("*", ident); }
-    public View getContentView () { return contentView; }
     public TunnelMenu getTunnelMenu () { return tunnelMenu; }
     public JSessionService getJSessionService () { return jSessionService; }
 
@@ -315,6 +315,11 @@ public class SshClient extends Activity {
     {
         contentView = v;
         super.setContentView (v);
+        if (v instanceof HasMainMenu) {
+            ((HasMainMenu) v).MakeMainMenu ();
+        } else {
+            SetDefaultMMenuItems ();
+        }
     }
 
     /****************************\
@@ -412,41 +417,22 @@ public class SshClient extends Activity {
      *  MENU key processing  *
     \*************************/
 
+    // a view that gets displayed via setContentView() and has main menu items should implement this interface
+    public interface HasMainMenu {
+        void MakeMainMenu ();
+    }
+
     // Display the main menu when the hardware menu button is clicked.
     @Override
     public boolean onCreateOptionsMenu (Menu menu)
     {
         // main menu
-        AddMMenuItem (menu, "Ctrl-...", new Runnable () {
-            public void run () {
-                currentsession.AssertCtrlKeyFlag ();
-            }
-        });
-        AddMMenuItem (menu, "Ctrl-C", new Runnable () {
-            public void run () {
-                currentsession.SendCharToHost (3);
-            }
-        });
-        AddMMenuItem (menu, "Freeze", new Runnable () {
-            public void run () {
-                currentsession.getScreentextview ().FreezeThaw ();
-            }
-        });
-        AddMMenuItem (menu, "Paste", new Runnable () {
-            public void run () {
-                PasteClipboardToHostShell ();
-            }
-        });
-        AddMMenuItem (menu, "Tab", new Runnable () {
-            public void run () {
-                currentsession.SendCharToHost (9);
-            }
-        });
-        AddMMenuItem (menu, "More >>", new Runnable () {
-            public void run () {
-                extendedMenuAD.show ();
-            }
-        });
+        mainMenu = menu;
+        if ((contentView != null) && (contentView instanceof HasMainMenu)) {
+            ((HasMainMenu) contentView).MakeMainMenu ();
+        } else {
+            SetDefaultMMenuItems ();
+        }
 
         // extended menu
         // make an AlertDialog with scrolled buttons
@@ -535,6 +521,12 @@ public class SshClient extends Activity {
                 currentsession.SetScreenMode (MySession.MSM_TUNNEL);
             }
         });
+        AddXMenuItem (xmll, "VNC client", new Runnable () {
+            public void run ()
+            {
+                currentsession.SetScreenMode (MySession.MSM_VNCCLI);
+            }
+        });
 
         ScrollView sv = new ScrollView (this);
         sv.addView (xmll);
@@ -546,10 +538,45 @@ public class SshClient extends Activity {
         return super.onCreateOptionsMenu (menu);
     }
 
-    // add item to main (Android-provided) menu
-    private void AddMMenuItem (Menu menu, String ident, Runnable runit)
+    public void SetDefaultMMenuItems ()
     {
-        menu.add (ident);
+        SetMMenuItems (
+                "-", null,
+                "-", null,
+                "-", null,
+                "-", null,
+                "-", null);
+    }
+
+    public void SetMMenuItems (
+            String ident1, Runnable runit1,
+            String ident2, Runnable runit2,
+            String ident3, Runnable runit3,
+            String ident4, Runnable runit4,
+            String ident5, Runnable runit5)
+    {
+        if (mainMenu != null) {
+            Log.d (TAG, "SetMMenuItems: " + ident1 + " " + ident2 + " " + ident3 + " " + ident4 + " " + ident5);
+            mainMenu.clear ();
+            allMainMenuItems.clear ();
+            AddMMenuItem (ident1, runit1);
+            AddMMenuItem (ident2, runit2);
+            AddMMenuItem (ident3, runit3);
+            AddMMenuItem (ident4, runit4);
+            AddMMenuItem (ident5, runit5);
+            AddMMenuItem ("More >>", new Runnable () {
+                public void run ()
+                {
+                    extendedMenuAD.show ();
+                }
+            });
+        }
+    }
+
+    // add item to main (Android-provided) menu
+    private void AddMMenuItem (String ident, Runnable runit)
+    {
+        mainMenu.add (ident);
         allMainMenuItems.put (ident, runit);
     }
 
@@ -598,33 +625,6 @@ public class SshClient extends Activity {
             return true;
         }
         return super.onOptionsItemSelected (menuItem);
-    }
-
-    /**
-     * Paste contents of clipboard to shell.
-     * Shell must be ready to accept, eg, in a 'cat > file.txt' command.
-     */
-    private void PasteClipboardToHostShell ()
-    {
-        if (currentsession.getScreentextview ().IsFrozen ()) {
-            ErrorAlert ("Paste to host", "disabled while screen frozen");
-            return;
-        }
-        final AlertDialog.Builder ab = new AlertDialog.Builder (this);
-        ab.setTitle ("Paste clipboard to host");
-        ab.setPositiveButton ("Internal", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton) {
-                currentsession.SendStringToHost (internalClipboard);
-            }
-        });
-        ab.setNeutralButton ("External", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton) {
-                ClipboardManager cbm = (ClipboardManager) getSystemService (CLIPBOARD_SERVICE);
-                currentsession.SendStringToHost (cbm.getText ().toString ());
-            }
-        });
-        ab.setNegativeButton ("Cancel", null);
-        ab.show ();
     }
 
     /**
@@ -947,6 +947,88 @@ public class SshClient extends Activity {
         } catch (Exception e) {
             // sometimes ToneGenerator throws RuntimeException: 'Init failed'
             Log.w (TAG, "make beep sound error", e);
+        }
+    }
+
+    /**
+     * Paste contents of client clipboard to host screen clipboard.
+     */
+    public interface PFC { void run (String str); }
+    public void PasteFromClipboard (final PFC done)
+    {
+        final AlertDialog.Builder ab = new AlertDialog.Builder (this);
+        ab.setTitle ("Paste clipboard to host");
+        ab.setPositiveButton ("Internal", new DialogInterface.OnClickListener () {
+            public void onClick (DialogInterface dialog, int whichButton) {
+                done.run (internalClipboard);
+            }
+        });
+        ab.setNeutralButton ("External", new DialogInterface.OnClickListener () {
+            public void onClick (DialogInterface dialog, int whichButton) {
+                ClipboardManager cbm = (ClipboardManager) getSystemService (Context.CLIPBOARD_SERVICE);
+                done.run (cbm.getText ().toString ());
+            }
+        });
+        ab.setNegativeButton ("Cancel", null);
+        ab.show ();
+    }
+
+    /**
+     * Maybe send the selected character sequence to the clipboard.
+     */
+    public void CopyToClipboard (final String str, final Runnable done)
+    {
+        // start making an alert box
+        AlertDialog.Builder ab = new AlertDialog.Builder (this);
+        ab.setTitle ("Copy to clipboard?");
+
+        // its message is the selected string
+        int len = str.length ();
+        StringBuilder msg = new StringBuilder (len);
+        if (len <= 50) {
+            AppendSanitized (msg, str, 0, len);
+        } else {
+            AppendSanitized (msg, str, 0, 24);
+            msg.append ("...");
+            AppendSanitized (msg, str, len - 24, len);
+        }
+        ab.setMessage (msg.toString ());
+
+        // Internal button does the copy then deselects string
+        ab.setPositiveButton ("Internal", new DialogInterface.OnClickListener () {
+            public void onClick (DialogInterface dialog, int whichButton) {
+                internalClipboard = str;
+                if (done != null) done.run ();
+            }
+        });
+
+        // External button does the copy then deselects string
+        ab.setNeutralButton ("External", new DialogInterface.OnClickListener () {
+            public void onClick (DialogInterface dialog, int whichButton) {
+                ClipboardManager cbm = (ClipboardManager) getSystemService (Context.CLIPBOARD_SERVICE);
+                cbm.setText (str);
+                if (done != null) done.run ();
+            }
+        });
+
+        // Cancel button just leaves everything as is
+        ab.setNegativeButton ("Cancel", null);
+
+        // display the dialog box
+        ab.show ();
+    }
+
+    /**
+     * Make sure there are no newlines in the text for the message box.
+     * That should be the only control character in the given text.
+     */
+    private static void AppendSanitized (StringBuilder msg, CharSequence buf, int beg, int end)
+    {
+        for (int i = beg; i < end; i ++) {
+            char c = buf.charAt (i);
+            if (c == '\n') msg.append ("\\n");
+            else if (c == '\\') msg.append ("\\\\");
+            else msg.append (c);
         }
     }
 }

@@ -26,6 +26,7 @@ package com.outerworldapps.sshclient;
 
 
 import android.net.Uri;
+import android.support.annotation.NonNull;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -237,8 +238,8 @@ public class FileIFile extends IFile {
         public void close () throws IOException { raFile.close (); }
         public void mark (int readlimit) { markioe = null; try { markpos = tell (); } catch (IOException ioe) { markioe = ioe; } }
         public boolean markSupported () { return true; }
-        public int read (byte[] buffer) throws IOException { return raFile.read (buffer); }
-        public int read (byte[] buffer, int offset, int count) throws IOException { return raFile.read (buffer, offset, count); }
+        public int read (@NonNull byte[] buffer) throws IOException { return raFile.read (buffer); }
+        public int read (@NonNull byte[] buffer, int offset, int count) throws IOException { return raFile.read (buffer, offset, count); }
         public int read () throws IOException { return raFile.read (); }
         public void reset () throws IOException { if (markioe != null) throw markioe; seek (markpos); }
         public long skip (long count) throws IOException { long oldpos = tell (); seek (oldpos + count); return tell () - oldpos; }
@@ -266,8 +267,8 @@ public class FileIFile extends IFile {
         // OutputStream
         public void close () throws IOException { raFile.close (); }
         public void flush () throws IOException { }
-        public void write (byte[] buffer) throws IOException { raFile.write (buffer); }
-        public void write (byte[] buffer, int offset, int count) throws IOException { raFile.write (buffer, offset, count); }
+        public void write (@NonNull byte[] buffer) throws IOException { raFile.write (buffer); }
+        public void write (@NonNull byte[] buffer, int offset, int count) throws IOException { raFile.write (buffer, offset, count); }
         public void write (int oneByte) throws IOException { raFile.write (oneByte); }
     }
 }

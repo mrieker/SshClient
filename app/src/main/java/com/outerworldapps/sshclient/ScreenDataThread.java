@@ -59,13 +59,14 @@ import java.io.OutputStreamWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Locale;
 
 public class ScreenDataThread extends Thread {
     public static final String TAG = "SshClient";
 
     //TODO move this to JSessionService
     public interface GUIDetach {
-        public void guiDetach ();
+        void guiDetach ();
     }
 
     public ChannelShell channel;
@@ -241,6 +242,6 @@ public class ScreenDataThread extends Thread {
 
     public static String hhmmssNow ()
     {
-        return new SimpleDateFormat ("HH:mm:ss").format(new Date ());
+        return new SimpleDateFormat ("HH:mm:ss", Locale.US).format(new Date ());
     }
 }

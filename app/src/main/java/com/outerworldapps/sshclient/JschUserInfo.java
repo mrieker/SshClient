@@ -107,8 +107,8 @@ public class JschUserInfo implements UserInfo {
      * @param saveprompt = null: don't give the user a 'save to disk' checkbox
      *                     else: message for the save to disk checkbox
      * @param initial = initial value string
-     * @returns String[0] = response (or null if Cancel)
-     *                [1] = null, "Yes" or "No" for the 'save to disk' checkbox
+     * returns String[0] = response (or null if Cancel)
+     *               [1] = null, "Yes" or "No" for the 'save to disk' checkbox
      */
     private String[] DialogStringPrompt (String title, String message, String saveprompt, String initial)
     {

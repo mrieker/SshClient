@@ -41,7 +41,6 @@ import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.Session;
 
 import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.util.HashMap;
 import java.util.TreeMap;
 
@@ -49,17 +48,17 @@ import java.util.TreeMap;
  * A session screen consists of a box to enter username@hostname[:portnumber] in
  * and a box that displays screen data from the host.
  */
-public class MySession extends LinearLayout {
+public class MySession extends LinearLayout implements SshClient.HasMainMenu {
     public static final String TAG = "SshClient";
     public static final int CONN_TIMEOUT_MS = 30000;
 
     public final static int MSM_SHELL  = 1;
     public final static int MSM_FILES  = 2;
     public final static int MSM_TUNNEL = 3;
-    public final static String[] modeNames = new String[4];
+    public final static int MSM_VNCCLI = 4;
+    public final static String[] modeNames = new String[5];
 
     private AlertDialog currentAlertDialog;
-    private boolean ctrlkeyflag;                  // when set, next key if 0x40..0x7F gets converted to 0x00..0x1F
     private HostNameText hostnametext;
     private int screenMode;                       // MSM_*
     private int sessionNumber;
@@ -70,8 +69,9 @@ public class MySession extends LinearLayout {
     private ScreenTextBuffer screentextbuffer;    // holds shell screen data coming from host
     private ScreenTextView screentextview;        // displays screen full of characters that came from the host
     private SshClient sshclient;
+    private View modeView;
     private View tunnellistview;
-
+    private VNCView vncclientview;
 
     public ChannelShell getShellChannel () { return (screendatathread == null) ? null : screendatathread.channel; }
     public HostNameText getHostnametext () { return hostnametext; }
@@ -80,6 +80,7 @@ public class MySession extends LinearLayout {
     public ScreenTextBuffer getScreentextbuffer () { return screentextbuffer; }
     public ScreenTextView getScreentextview () { return screentextview; }
     public SshClient getSshClient () { return sshclient; }
+    public VNCView getVNCClientView () { return vncclientview; }
     public int getSessionNumber () { return sessionNumber; }
 
     /**
@@ -94,7 +95,7 @@ public class MySession extends LinearLayout {
         screentextbuffer = new ScreenTextBuffer (this);
         screenMode = MSM_SHELL;
 
-        CommonConstruction (sc);
+        CommonConstruction ();
     }
 
     /**
@@ -110,7 +111,7 @@ public class MySession extends LinearLayout {
         screenMode    = (Integer) sdt.detstate.get ("screenMode");
         sessionNumber = (Integer) sdt.detstate.get ("sessionNumber");
 
-        CommonConstruction (sc);
+        CommonConstruction ();
 
         hostnametext.setText ((String) sdt.detstate.get ("userhostport"));
         hostnametext.SetState (HostNameText.ST_ONLINE);
@@ -118,7 +119,7 @@ public class MySession extends LinearLayout {
         sc.setLastSessionNumber (sessionNumber);
     }
 
-    private void CommonConstruction (SshClient sc)
+    private void CommonConstruction ()
     {
         jschuserinfo = new JschUserInfo (this);
         screendatahandler = new ScreenDataHandler (this);
@@ -140,6 +141,7 @@ public class MySession extends LinearLayout {
         modeNames[MSM_SHELL]  = "shell";
         modeNames[MSM_FILES]  = "file transfer";
         modeNames[MSM_TUNNEL] = "tunnel";
+        modeNames[MSM_VNCCLI] = "VNC client";
 
         setOrientation (LinearLayout.VERTICAL);
         RebuildView ();
@@ -169,6 +171,9 @@ public class MySession extends LinearLayout {
             hostnametext.SetState (HostNameText.ST_ONLINE);
             if (screenMode == MSM_SHELL) {
                 screentextview.requestFocus ();
+            }
+            if (screenMode == MSM_VNCCLI) {
+                vncclientview.requestFocus ();
             }
         }
 
@@ -206,6 +211,7 @@ public class MySession extends LinearLayout {
         screentextbuffer.LoadSettings ();
         screentextview.LoadSettings ();
         if (fileexplorerview != null) fileexplorerview.LoadSettings ();
+        if (vncclientview != null) vncclientview.LoadSettings ();
     }
 
     /**
@@ -316,7 +322,7 @@ public class MySession extends LinearLayout {
                 // saying what mode it will go in when it connects
                 if (screendatathread == null) ScreenMsg (modeNames[screenMode] + " mode selected\r\n");
 
-                // if we are connected, rebuild our view based on new shell/filetransfer/tunnel mode
+                // if we are connected, rebuild our view based on new shell/filetransfer/tunnel/vnccli mode
                 // also save new mode in case we detach and re-attach.
                 else {
                     RebuildView ();
@@ -384,7 +390,7 @@ public class MySession extends LinearLayout {
          * Also might have GUI interaction to ask for stuff like password.
          */
         @Override
-        protected Object doInBackground (String... params)
+        protected Object doInBackground (String[] params)
         {
             String username;
             String hostname;
@@ -456,8 +462,8 @@ public class MySession extends LinearLayout {
          * Select keypair suitable for this connection.
          * @param lastone = null: no keypair was used last time we connected to this username@hostname[:portnumber]
          *                  else: ident of keypair used last time
-         * @returns null: do not use a keypair for connection
-         *          else: ident of keypair to use for connection
+         * returns null: do not use a keypair for connection
+         *         else: ident of keypair to use for connection
          */
         private String SelectKeypair (String lastone)
                 throws Exception
@@ -550,6 +556,8 @@ public class MySession extends LinearLayout {
                  */
                 if (screenMode == MSM_SHELL) {
                     screendatathread.startshellmode (sshclient.getSettings ().GetTermTypeStr ());
+                    modeView = screentextview;
+                    MakeMainMenu ();
                 } else {
                     RebuildView ();
                 }
@@ -600,57 +608,10 @@ public class MySession extends LinearLayout {
             // all done with thread struct
             screendatathread = null;
         }
-    }
 
-    /**
-     * Next character that gets passed to SendCharToHost get ctrl-ified.
-     */
-    public void AssertCtrlKeyFlag ()
-    {
-        ctrlkeyflag = true;
-    }
-
-    /**
-     * Send keyboard character(s) on to host for processing.
-     * Don't send anything while frozen because the remote host might be blocked
-     * and so the TCP link to the host is blocked and so we would block.
-     */
-    public void SendCharToHost (int code)
-    {
-        if (ctrlkeyflag && (code >= 0x40) && (code <= 0x7F)) code &= 0x1F;
-        ctrlkeyflag = false;
-        char[] array = new char[] { (char)code };
-        if (!SendStringToHost (new String (array))) {
-            SshClient.MakeBeepSound ();
-        }
-    }
-
-    public boolean SendStringToHost (String txt)
-    {
-        if (screendatathread == null) {
-            Log.w (TAG, "send to host discarded while disconnected");
-            return false;
-        }
-        if (screentextview.IsFrozen ()) {
-            Log.w (TAG, "send to host discarded while frozen");
-            return false;
-        }
-        OutputStreamWriter out = screendatathread.output;
-        if (out == null) {
-            Log.w (TAG, "send to host discarded while logged out");
-            return false;
-        }
-        try {
-            out.write (txt);
-            out.flush ();
-        } catch (Exception e) {
-            Log.w (TAG, "transmit error", e);
-            ScreenMsg ("\r\ntransmit error: " + SshClient.GetExMsg (e));
-            try { out.close (); } catch (Exception ee) { }
-            screendatathread.output = null;
-            return false;
-        }
-        return true;
+        // clear out the main menu
+        modeView = null;
+        MakeMainMenu ();
     }
 
     /**
@@ -659,7 +620,7 @@ public class MySession extends LinearLayout {
     public void RebuildView ()
     {
         // if not connected yet, use the shell screen as it is used to show connection progress messages.
-        View modeView = screentextview;
+        modeView = screentextview;
 
         if (screendatathread != null) {
             switch (screenMode) {
@@ -697,6 +658,15 @@ public class MySession extends LinearLayout {
                     break;
                 }
 
+                // and similar for VNC client
+                case MSM_VNCCLI: {
+                    if (vncclientview == null) {
+                        vncclientview = new VNCView (this);
+                    }
+                    modeView = vncclientview;
+                    break;
+                }
+
                 default: throw new RuntimeException ("bad screenMode " + screenMode);
             }
         }
@@ -706,6 +676,22 @@ public class MySession extends LinearLayout {
         removeAllViews ();
         addView (hostnametext);
         addView (modeView);
+
+        // set up appropriate main menu items
+        MakeMainMenu ();
+    }
+
+    /**
+     * If brought to foreground, make sure main menu buttons are ok.
+     */
+    @Override  // HasMainMenu
+    public void MakeMainMenu ()
+    {
+        if ((modeView != null) && (modeView instanceof SshClient.HasMainMenu)) {
+            ((SshClient.HasMainMenu) modeView).MakeMainMenu ();
+        } else {
+            sshclient.SetDefaultMMenuItems ();
+        }
     }
 
     /**

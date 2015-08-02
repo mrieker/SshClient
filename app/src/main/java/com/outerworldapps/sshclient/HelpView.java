@@ -36,15 +36,16 @@ import android.webkit.WebView;
 public class HelpView extends WebView {
     public static final String TAG = "SshClient";
 
+    private static WVJSHandler wvjsHandler;
+
     private SshClient sshclient;
-    private WVJSHandler wvjsHandler;
 
     public HelpView (SshClient sc)
     {
         super (sc);
         sshclient = sc;
 
-        wvjsHandler = new WVJSHandler ();
+        if (wvjsHandler == null) wvjsHandler = new WVJSHandler ();
 
         getSettings ().setBuiltInZoomControls (true);
         getSettings ().setJavaScriptEnabled (true);
@@ -97,7 +98,7 @@ public class HelpView extends WebView {
         @SuppressWarnings ("unused")
         public void backButton ()
         {
-            wvjsHandler.sendEmptyMessage (WVJSHandler.BACKBUTT);
+            wvjsHandler.obtainMessage (WVJSHandler.BACKBUTT, HelpView.this).sendToTarget ();
         }
     }
 
@@ -105,7 +106,7 @@ public class HelpView extends WebView {
      * Handler executes in UI thread as a result of
      * javascript calls in the internal web pages.
      */
-    private class WVJSHandler extends Handler {
+    private static class WVJSHandler extends Handler {
         public final static int BACKBUTT = 1;
 
         @Override
@@ -113,7 +114,7 @@ public class HelpView extends WebView {
         {
             switch (m.what) {
                 case BACKBUTT: {
-                    goBack ();
+                    ((HelpView) m.obj).goBack ();
                     break;
                 }
                 default: throw new RuntimeException ();

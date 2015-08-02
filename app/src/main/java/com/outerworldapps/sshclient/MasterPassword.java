@@ -267,9 +267,13 @@ public class MasterPassword {
             SecretKeySpec newsecretkeyspec = new SecretKeySpec (md.digest (masterpasswordstring.getBytes ("UTF-8")), "AES");
 
             // re-encrypt all data files to temp files
-            boolean havesavedlogins = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, savedloginsfilename);
-            boolean haveknownhosts  = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getKnownhostsfilename ());
-            boolean havetunnels     = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getTunnelMenu ().getTunnelFileName ());
+            String vncPortNumberPath = new File (sshclient.getFilesDir (), "vncportnumbers.enc").getPath ();
+            String vncPasswordPath   = new File (sshclient.getFilesDir (), "vncpasswords.enc").getPath ();
+            boolean havesavedlogins  = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, savedloginsfilename);
+            boolean haveknownhosts   = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getKnownhostsfilename ());
+            boolean havetunnels      = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getTunnelMenu ().getTunnelFileName ());
+            boolean havevncports     = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, vncPortNumberPath);
+            boolean havevncpwds      = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, vncPasswordPath);
             for (String ident : keypairidents) {
                 ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getPrivatekeyfilename (ident));
                 ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getPublickeyfilename  (ident));
@@ -289,6 +293,8 @@ public class MasterPassword {
             if (havesavedlogins) RenameTempToPerm (savedloginsfilename);
             if (haveknownhosts)  RenameTempToPerm (sshclient.getKnownhostsfilename ());
             if (havetunnels)     RenameTempToPerm (sshclient.getTunnelMenu ().getTunnelFileName ());
+            if (havevncports)    RenameTempToPerm (vncPortNumberPath);
+            if (havevncpwds)     RenameTempToPerm (vncPasswordPath);
             for (String ident : keypairidents) {
                 RenameTempToPerm (sshclient.getPrivatekeyfilename (ident));
                 RenameTempToPerm (sshclient.getPublickeyfilename  (ident));

@@ -52,10 +52,11 @@ import java.util.TreeMap;
 public class MyHostKeyRepo implements HostKeyRepository {
     public static final String TAG = "SshClient";
 
+    private final TreeMap<String,ArrayList<HostKey>> pool;
+
     private AlertDialog currentMenuDialog;
     private SshClient sshclient;
     private String knownhostsfilename;
-    private TreeMap<String,ArrayList<HostKey>> pool;
 
     public MyHostKeyRepo (SshClient sc)
     {
@@ -301,8 +302,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
         // it is written by the JSch package when a hosts fingerprint is accepted by the user
         // the first word (up to a space) is the host name
         HostKey[] hks = getHostKey ();
-        for (int i = 0; i < hks.length; i ++) {
-            HostKey hk = hks[i];
+        for (HostKey hk : hks) {
             Button but = sshclient.MyButton ();
             but.setTag (hk);
             but.setText (hk.getHost () + " [" + hk.getType () + "] " + hk.getFingerPrint (jsch));

@@ -36,6 +36,7 @@ import android.graphics.Typeface;
 import android.os.AsyncTask;
 import android.os.Environment;
 import android.os.SystemClock;
+import android.support.annotation.NonNull;
 import android.util.Log;
 import android.util.TypedValue;
 import android.view.MotionEvent;
@@ -54,6 +55,7 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.Locale;
 import java.util.Stack;
 import java.util.TreeMap;
 
@@ -306,7 +308,7 @@ public class FileExplorerNav extends LinearLayout {
         }
 
         @Override
-        protected Exception doInBackground (Void... params)
+        protected Exception doInBackground (Void[] params)
         {
             try {
                 // read the directory contents
@@ -391,7 +393,7 @@ public class FileExplorerNav extends LinearLayout {
         }
 
         @Override
-        protected Exception doInBackground (Void... params)
+        protected Exception doInBackground (Void[] params)
         {
             try {
                 // convert wildcard to lower case if case-insensitive search
@@ -458,7 +460,7 @@ public class FileExplorerNav extends LinearLayout {
         }
 
         @Override
-        protected void onProgressUpdate (Object... params)
+        protected void onProgressUpdate (Object[] params)
         {
             String curSearchDir = (String)  params[0];
             int    numFoundSync = (Integer) params[1];
@@ -564,7 +566,7 @@ public class FileExplorerNav extends LinearLayout {
         }
 
         @Override
-        public boolean onTouchEvent (MotionEvent me)
+        public boolean onTouchEvent (@NonNull MotionEvent me)
         {
             filesTextZoom.OnTouchEvent (me);
 
@@ -620,8 +622,10 @@ public class FileExplorerNav extends LinearLayout {
     private class FilesTextView extends View {
         private static final String datespec = "  yyyy-MM-dd HH:mm:ss  ";
         private static final String datespac = "                       ";
-        private SimpleDateFormat datefmt = new SimpleDateFormat (datespec);
+        private SimpleDateFormat datefmt = new SimpleDateFormat (datespec, Locale.US);
         private StringBuffer datestr = new StringBuffer ();
+
+        private final Object dcLock = new Object ();
 
         private ArrayList<ViewedFile> dirContents;
         private float charWidth;
@@ -631,7 +635,6 @@ public class FileExplorerNav extends LinearLayout {
         private int sizeWidth;   // width of file size field in chars
         private int widestLine;  // widest line in characters
         private long lastSelTime;
-        private Object dcLock;
         private Paint boxpaint;
         private Paint textpaint;
         private Rect bounds = new Rect ();
@@ -642,7 +645,6 @@ public class FileExplorerNav extends LinearLayout {
         {
             super (sshclient);
             dirContents = new ArrayList<ViewedFile> (1);
-            dcLock = new Object ();
             boxpaint = new Paint ();
             boxpaint.setStyle (Paint.Style.STROKE);
             textpaint = new Paint ();

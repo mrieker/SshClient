@@ -1,0 +1,43 @@
+<HTML><BODY>
+<H3>VNC CLIENT Screen</H3>
+<P>This screen is used to connect to a VNC server located on a host accessible via SSH.  The VNC
+    connection will be transported via a temporary SSH tunnel.</P>
+<P>Notes:
+    <UL>
+        <LI>You do not need to create a tunnel via the <A HREF="tunnels.html">TUNNELS</A> screen.
+            The VNC screen creates a temporary tunnel itself.</LI>
+        <LI>Since the connection to the VNC server is via an SSH tunnel, the VNC server port can be
+            firewalled on the server to allow connections only from the local host.</LI>
+    </UL>
+</P>
+<P>To connect:
+    <UL>
+        <LI>Switch to the VNC CLIENT screen via the Android menu button -> More -> VNC client.</LI>
+        <LI>If not already connected, connect to the VNC server system via SSH by putting in the SSH
+            username and hostname in the <TT>user@host[:port]</TT> box at the top of the screen.
+            You may need to tap in the <TT>user@host[:port]</TT> box for it to accept entry.</LI>
+        <LI>Enter the VNC server port number, usually 5900 + screen number, eg, 5907 for screen 7.</LI>
+        <LI>Enter the VNC password for that screen if required.</LI>
+    </UL>
+</P>
+<P>To disconnect, click Android menu button -> Discon.  To reconnect, click Android menu button ->
+    Connect.</P>
+<P>While connected, the screen may be resized or dragged using two fingers.  For sending mouse events,
+    use one finger (short tap for left click, long press for right click).</P>
+<P>Tapping the screen will also bring the Android keyboard up if it is not present.</P>
+<A NAME="menubuttons" />
+<P>The Android's menu contains these main buttons:
+<UL>
+    <LI><B>Ctrl-...</B> - the next character entered on the keyboard will be shifted to control character,
+        if it is an alphabetic.  If a non-alphabetic is entered, the <TT>Ctrl-...</TT> will be abandoned
+        and the character will be sent normally.</LI>
+    <LI><B>Ctrl-C</B> - sends a Control-C character to the host.</LI>
+    <LI><B>Connect</B> - connect the VNC channel.</LI>
+    <LI><B>Discon</B> - disconnect the VNC channel.</LI>
+    <LI><B>Paste</B> - sends the contents of a clipboard to the remote host shell.</LI>
+    <LI><B>Tab</B> - sends a TAB character to the remote host.</LI>
+    <LI><B>More &gt;&gt;</B> - opens up the <A HREF="menubuttons.html#extended">extended menu</A>.</LI>
+</UL>
+</P>
+<P><A HREF="help.html">(top)</A></P>
+</BODY></HTML>

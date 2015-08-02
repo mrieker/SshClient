@@ -38,6 +38,8 @@ package com.outerworldapps.sshclient;
 import android.graphics.Color;
 import android.util.Log;
 
+import java.io.OutputStreamWriter;
+
 public class ScreenTextBuffer {
     public static final String TAG = "SshClient";
 
@@ -93,9 +95,10 @@ public class ScreenTextBuffer {
     private boolean linefeedmode;     // false: <LF> stays in same column; true: <LF> goes to first col in new line
     private boolean originmode;       // false: cursor positioning absolute; true: cursor positioning relative to margin
     private boolean savedAltCharSet;
+    private boolean[] tabstops;       // positions of tabs
     private final char[] escseqbuf = new char[ESCSEQMAX];
-    private int   escseqidx = -1;
     private int   botScrollLine;
+    private int   escseqidx;
     private int   savedColNumber;
     private int   savedRowNumber;
     private int   topScrollLine;
@@ -104,8 +107,66 @@ public class ScreenTextBuffer {
     public ScreenTextBuffer (MySession s)
     {
         session = s;
-        hardwrapmode = true;
         LoadSettings ();
+        PowerOnReset ();
+    }
+
+    /**
+     * Send keyboard character(s) on to host shell for processing.
+     * Don't send anything while frozen because the remote host might be blocked
+     * and so the TCP link to the host is blocked and so we would block.
+     */
+    public boolean SendStringToHostShell (String txt)
+    {
+        ScreenDataThread screendatathread = session.getScreendatathread ();
+        if (screendatathread == null) {
+            Log.w (TAG, "send to host discarded while disconnected");
+            return false;
+        }
+        if (frozen) {
+            Log.w (TAG, "send to host discarded while frozen");
+            return false;
+        }
+        OutputStreamWriter out = screendatathread.output;
+        if (out == null) {
+            Log.w (TAG, "send to host discarded while logged out");
+            return false;
+        }
+        try {
+            out.write (txt);
+            out.flush ();
+        } catch (Exception e) {
+            Log.w (TAG, "transmit error", e);
+            ScreenMsg ("\r\ntransmit error: " + SshClient.GetExMsg (e));
+            try { out.close (); } catch (Exception ee) { }
+            screendatathread.output = null;
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Return all host settable settings to power-on reset state.
+     */
+    private void PowerOnReset ()
+    {
+        altcharset      = false;
+        cursorappmode   = false;
+        hardwrapmode    = true;
+        keypadappmode   = false;
+        linefeedmode    = false;
+        originmode      = false;
+        savedAltCharSet = false;
+        tabstops        = new boolean[lineWidth];
+        botScrollLine   = screenHeight;
+        escseqidx       = -1;
+        savedColNumber  = 1;
+        savedRowNumber  = 1;
+        topScrollLine   = 1;
+
+        for (int i = 0; i < lineWidth; i += 8) {
+            tabstops[i] = true;
+        }
     }
 
     /**
@@ -296,6 +357,12 @@ public class ScreenTextBuffer {
             lineWidth     = cols;
             topScrollLine = 1;
             botScrollLine = rows;
+
+            boolean[] newtabstops = new boolean[cols];
+            for (int i = 0; i < cols; i ++) {
+                newtabstops[i] = (i < tabstops.length) ? tabstops[i] : (i % 8 == 0);
+            }
+            tabstops = newtabstops;
         }
     }
 
@@ -423,14 +490,11 @@ public class ScreenTextBuffer {
                     break;
                 }
 
-                // tab: space to next 8-character position in line
+                // tab: space to next tabstop position in line
                 case 9: {
-                    int k = BegOfLine (insertpoint);
-                    k = (insertpoint - k) % 8;
-                    while (k < 8) {
-                        StorePrintableAtInsertPoint (' ', attrs);
-                        k ++;
-                    }
+                    int colofs = insertpoint - BegOfLine (insertpoint);
+                    do StorePrintableAtInsertPoint (' ', attrs);
+                    while ((++ colofs < tabstops.length) ? !tabstops[colofs] : (colofs % 8 != 0));
                     break;
                 }
 
@@ -571,12 +635,27 @@ public class ScreenTextBuffer {
                     break;
                 }
 
+                // set tab stop
+                case 'H': {
+                    int colofs = insertpoint - BegOfLine (insertpoint);
+                    if (colofs < tabstops.length) tabstops[colofs] = true;
+                    break;
+                }
+
                 // go up, if at top margin, scroll
                 // stay in same column
                 case 'M': {
                     int colofs = insertpoint - BegOfLine (insertpoint);
                     PrevLine ();
                     MoveCursorRight (colofs);
+                    break;
+                }
+
+                // reset
+                case 'c': {
+                    PowerOnReset ();
+                    ClearScreen ();
+                    SetCursorPosition (1, 1);
                     break;
                 }
 
@@ -590,7 +669,7 @@ public class ScreenTextBuffer {
             try {
                 parms = new String (escseqbuf, 1, escseqlen - 1).split (";");
             } catch (Exception e) {
-                parms = null;
+                parms = new String[] { "" };
             }
             switch (termchr) {
 
@@ -791,7 +870,26 @@ public class ScreenTextBuffer {
 
                 // [ c - what are you?
                 case 'c': {
-                    session.SendStringToHost ("\033[?1;0c");
+                    SendStringToHostShell ("\033[?1;0c");
+                    break;
+                }
+
+                // [ g - clear tabs
+                case 'g': {
+                    int code = ParseInt (parms[0]);
+                    switch (code) {
+                        case 0: {
+                            int colofs = insertpoint - BegOfLine (insertpoint);
+                            if (colofs < tabstops.length) tabstops[colofs] = false;
+                            break;
+                        }
+                        case 3: {
+                            for (int i = tabstops.length; -- i >= 0;) {
+                                tabstops[i] = false;
+                            }
+                            break;
+                        }
+                    }
                     break;
                 }
 
@@ -856,7 +954,7 @@ public class ScreenTextBuffer {
                     int param = ParseInt (parms[0]);
                     switch (param) {
                         case 5: {
-                            session.SendStringToHost ("\033[0n");
+                            SendStringToHostShell ("\033[0n");
                             break;
                         }
                         case 6: {
@@ -865,7 +963,7 @@ public class ScreenTextBuffer {
                             if (originmode) {
                                 row -= topScrollLine - 1;
                             }
-                            session.SendStringToHost ("\033[" + row + ";" + col + "R");
+                            SendStringToHostShell ("\033[" + row + ";" + col + "R");
                         }
                         default: Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
                     }
@@ -893,7 +991,7 @@ public class ScreenTextBuffer {
     }
 
     /**
-     * Decode a single integer parameter for the escape sequence.
+     * GetCode a single integer parameter for the escape sequence.
      */
     private static int ParseInt (String s)
     {

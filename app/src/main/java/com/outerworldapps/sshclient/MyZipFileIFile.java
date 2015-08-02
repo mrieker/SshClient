@@ -25,7 +25,6 @@
 package com.outerworldapps.sshclient;
 
 import android.net.Uri;
-import android.util.Log;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,8 +34,6 @@ import java.util.Collection;
 
 public class MyZipFileIFile extends IFile {
     public static final String TAG = "SshClient";
-
-    private static final MyZipEntryIFile[] zeroMyZipEntryIFile = new MyZipEntryIFile[0];
 
     private IFile container;
     private ZipFile zipFile;

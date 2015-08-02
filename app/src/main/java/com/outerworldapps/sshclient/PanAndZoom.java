@@ -64,7 +64,7 @@ public abstract class PanAndZoom implements ScaleGestureDetector.OnScaleGestureL
 	public abstract void Scaling (float fx, float fy, float sf);
 
 	/**
-	 * @brief Callback for mouse events on the image.
+	 * Callback for mouse events on the image.
 	 */
 	public boolean OnTouchEvent (MotionEvent event)
 	{
@@ -120,7 +120,7 @@ public abstract class PanAndZoom implements ScaleGestureDetector.OnScaleGestureL
 	}
 
 	/**
-	 * @brief ScaleGestoreDetector.OnScaleGestureListener implementation methods.
+	 * ScaleGestoreDetector.OnScaleGestureListener implementation methods.
 	 */
 	@Override
 	public boolean onScaleBegin (ScaleGestureDetector detector)

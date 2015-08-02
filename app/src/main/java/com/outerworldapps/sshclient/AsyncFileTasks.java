@@ -61,8 +61,10 @@ public class AsyncFileTasks {
         void startFile (IFile oldFile, IFile newFile, long bytes);
         void partialCopy (long bytes);
         void endOfFile ();
-    };
+    }
 
+    private final static Object[] zeroObjectArray = new Object[0];
+    private final static Void[]   zeroVoidArray   = new Void[0];
 
     /**
      * Start copying/moving a list of files.
@@ -83,7 +85,7 @@ public class AsyncFileTasks {
         cmft.moveMode  = moveMode;
         cmft.preScan   = preScan;
         cmft.setCallbacks (callbacks);
-        cmft.execute ();
+        cmft.execute (zeroVoidArray);
         return cmft;
     }
 
@@ -139,7 +141,7 @@ public class AsyncFileTasks {
         DeleteFilesThread dft = new DeleteFilesThread ();
         dft.selecteds = selecteds.toArray (new Selected[selecteds.size()]);
         dft.setCallbacks (callbacks);
-        dft.execute ();
+        dft.execute (zeroVoidArray);
         return dft;
     }
 
@@ -171,6 +173,8 @@ public class AsyncFileTasks {
             implements IOverAnswer, FileUtils.XferListener {
         public Selected[] selecteds;         // files that have been selected for processing
 
+        private final Object ppWaitLock = new Object ();
+
         private boolean exceptionPending;    // there was an exception during copy
         private boolean isPaused;
         private Exception exceptionExceptn;  // exception during copy: exception thrown
@@ -178,7 +182,6 @@ public class AsyncFileTasks {
         private ICopyMoveDelCB callbacks;    // null: detached from GUI; else: callbacks to update GUI
         private IFile exceptionNewFile;      // exception during copy: dest file
         private IFile exceptionOldFile;      // exception during copy: src file
-        private Object ppWaitLock = new Object ();
         private StackEntry lastActive;       // stacked (directory tree) transfers that are currently active
         private StackEntry lastPosted;       // those transfers that have been posted to GUI thread
 
@@ -215,7 +218,7 @@ public class AsyncFileTasks {
          * Called in the spawned thread to perform all the transfers in the selecteds list.
          */
         @Override
-        protected Exception doInBackground (Void... params)
+        protected Exception doInBackground (Void[] params)
         {
             try {
                 for (Selected selected : selecteds) {
@@ -231,7 +234,7 @@ public class AsyncFileTasks {
          * Called by an implementation of forEachSelected() to prompt the user if they want a
          * particular existing file overwritten by the transfer.  Waits for the reply.
          * @param newFile = file that is about to be overwritten
-         * @return overwriteAns = answer
+         * returns overwriteAns = answer
          */
         protected void overwriteQuery (IFile newFile)
                 throws Exception
@@ -241,7 +244,7 @@ public class AsyncFileTasks {
                 overwriteAns = OA_NOAN;
                 overwriteNewFile = newFile;
             }
-            publishProgress ();
+            publishProgress (zeroObjectArray);
             synchronized (ppWaitLock) {
                 while (overwriteAns == OA_NOAN) {
                     try { ppWaitLock.wait (); } catch (InterruptedException ie) { }
@@ -262,7 +265,7 @@ public class AsyncFileTasks {
                 entry.popToEntry = lastActive;
                 lastActive = entry;
             }
-            publishProgress ();
+            publishProgress (zeroObjectArray);
         }
 
         /**
@@ -277,7 +280,7 @@ public class AsyncFileTasks {
                 lastActive.completed = true;
                 lastActive = lastActive.popToEntry;
             }
-            publishProgress ();
+            publishProgress (zeroObjectArray);
         }
 
         /**
@@ -301,7 +304,7 @@ public class AsyncFileTasks {
                 entry.popToEntry = lastActive;
                 lastActive = entry;
             }
-            publishProgress ();
+            publishProgress (zeroObjectArray);
         }
 
         @Override  // XferListener
@@ -310,7 +313,7 @@ public class AsyncFileTasks {
         {
             if (progUpdException != null) throw progUpdException;
             long old = ((FileXferEntry)lastActive).sofar.getAndSet (bytes);
-            if (old == 0) publishProgress ();
+            if (old == 0) publishProgress (zeroObjectArray);
         }
 
         @Override  // XferListener
@@ -322,7 +325,7 @@ public class AsyncFileTasks {
                 lastActive.completed = true;
                 lastActive = lastActive.popToEntry;
             }
-            publishProgress ();
+            publishProgress (zeroObjectArray);
         }
 
         // there was an exception while copying a single file
@@ -337,7 +340,7 @@ public class AsyncFileTasks {
                 exceptionExceptn = e;
                 exceptionPending = true;
             }
-            publishProgress ();
+            publishProgress (zeroObjectArray);
             synchronized (ppWaitLock) {
                 while (exceptionPending) {
                     try { ppWaitLock.wait (); } catch (InterruptedException ie) { }
@@ -364,7 +367,7 @@ public class AsyncFileTasks {
          * Doesn't get called when detached from GUI.
          */
         @Override  // com.outerworldapps.sshclient.DetachableAsyncTask
-        protected void onProgressUpdate (Object... params)
+        protected void onProgressUpdate (Object[] params)
         {
             try {
                 StackEntry completionsBeg;

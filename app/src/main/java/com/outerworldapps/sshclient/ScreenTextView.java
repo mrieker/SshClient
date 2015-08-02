@@ -41,39 +41,35 @@
 package com.outerworldapps.sshclient;
 
 
-import android.app.AlertDialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.os.SystemClock;
-import android.text.ClipboardManager;
+import android.support.annotation.NonNull;
 import android.text.Editable;
-import android.text.InputType;
 import android.text.TextWatcher;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
-import android.widget.LinearLayout;
 
 import com.jcraft.jsch.ChannelShell;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class ScreenTextView extends LinearLayout implements View.OnFocusChangeListener {
+public class ScreenTextView extends KeyboardableView implements SshClient.HasMainMenu {
     public static final String TAG = "SshClient";
 
     public static final int CURSOR_HALFCYCLE_MS = 512;
 
+    private final ScreenTextBuffer screenTextBuffer;  // where we get shell screen data from
+
     private AtomicBoolean invalTextImmPend = new AtomicBoolean (false);
+    private boolean ctrlkeyflag;                 // when set, next key if 0x40..0x7F gets converted to 0x00..0x1F
     private boolean frozen;                      // indicates frozen mode
     private boolean invalTextDelPend;
     private boolean selectActive;                // the 'b' key has been pressed to begin text selection
@@ -93,10 +89,9 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
     private int[] visibleLineBegs = new int[1];  // offsets of beginning of visible lines in theWholeText
     private int[] visibleLineEnds = new int[1];  // offsets of end of visible lines in theWholeText
     private long cursorBlinkBase;                // forces cursor on for any text change
-    private MyEditText edtx;                     // holds the text display
     private MySession session;                   // what session we are part of
-    private ScreenTextBuffer screenTextBuffer;   // where we get shell screen data from
     private SshClient sshclient;                 // what activity we are part of
+    private ShellEditText edtx;                  // holds the text display
     private STPanning panning;                   // used for scrolling based on mouse movements
     private HorizontalScrollView vt100kb;        // non-null means we are using VT100KBView keyboard
 
@@ -107,11 +102,8 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
         sshclient = ms.getSshClient ();
         screenTextBuffer = stb;
 
-        setOrientation (VERTICAL);
-
-        edtx = new MyEditText ();
-        edtx.setLayoutParams (new LinearLayout.LayoutParams (ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, 1.0F));
-        edtx.setOnFocusChangeListener (this);
+        edtx = new ShellEditText ();
+        SetEditor (edtx);
         LoadSettings ();
 
         panning = new STPanning (sshclient);
@@ -128,6 +120,55 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
     }
 
     /**
+     * User just selected 'shell' mode, so set up the shell mode main menu items.
+     */
+    @Override  // HasMainMenu
+    public void MakeMainMenu ()
+    {
+        sshclient.SetMMenuItems (
+                "Ctrl-...", new Runnable () {
+                    public void run ()
+                    {
+                        ctrlkeyflag = true;
+                    }
+                },
+                "Ctrl-C", new Runnable () {
+                    public void run ()
+                    {
+                        SendCharToHostShell (3);
+                    }
+                },
+                "Freeze", new Runnable () {
+                    public void run ()
+                    {
+                        FreezeThaw ();
+                    }
+                },
+                "Paste", new Runnable () {
+                    public void run ()
+                    {
+                        if (IsFrozen ()) {
+                            sshclient.ErrorAlert ("Paste to host", "disabled while screen frozen");
+                        } else {
+                            sshclient.PasteFromClipboard (new SshClient.PFC () {
+                                @Override
+                                public void run (String str)
+                                {
+                                    screenTextBuffer.SendStringToHostShell (str);
+                                }
+                            });
+                        }
+                    }
+                },
+                "Tab", new Runnable () {
+                    public void run ()
+                    {
+                        SendCharToHostShell (9);
+                    }
+                });
+    }
+
+    /**
      * Set up text attributes from settings file.
      */
     public void LoadSettings ()
@@ -141,47 +182,14 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
         edtx.setBackgroundColor (frozen ? settings.GetFGColor () : settings.GetBGColor ());
         edtx.setTextSize (settings.font_size.GetValue ());
 
-        // keyboard style
+        // select keyboard style
         boolean usevt100kb = settings.vt100_kbd.GetValue ();
-        if (!usevt100kb) {
-            vt100kb = null;
-            // no spelling interference
-            edtx.setInputType (InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-            // make sure we get RETURN key instead of DONE key
-            edtx.setImeOptions (EditorInfo.IME_ACTION_NONE);
-            removeAllViews ();
-            addView (edtx);
-        } else if (vt100kb == null) {
-            vt100kb = new HorizontalScrollView (sshclient);
-            vt100kb.setLayoutParams (new LinearLayout.LayoutParams (ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0.0F));
-            VT100KBView vtkb = new VT100KBView (session);
-            vt100kb.addView (vtkb);
-            vt100kb.setVisibility (GONE);
-            edtx.setInputType (InputType.TYPE_NULL);
-            removeAllViews ();
-            addView (edtx);
-            addView (vt100kb);
-        }
+        SelectKeyboard (usevt100kb);
     }
-
-    @Override  // OnFocusChangeListener
-    public void onFocusChange (View v, boolean focus)
+    @Override  // KeyboardableView
+    protected View GetAltKeyboard ()
     {
-        Log.d (TAG, "ScreenTextView focus=" + focus);
-        if (vt100kb != null) {
-            vt100kb.setVisibility (focus ? VISIBLE : GONE);
-            if (focus) {
-                // turn off android keyboard
-                InputMethodManager imm = (InputMethodManager) sshclient.getSystemService (Context.INPUT_METHOD_SERVICE);
-                imm.hideSoftInputFromWindow (v.getWindowToken (), 0);
-            }
-        } else {
-            if (focus) {
-                // turn on android keyboard
-                InputMethodManager imm = (InputMethodManager) sshclient.getSystemService (Context.INPUT_METHOD_SERVICE);
-                imm.showSoftInput (v, 0);
-            }
-        }
+        return new VT100KBView (session, this);
     }
 
     /**
@@ -277,7 +285,7 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
      * Holds the displayed text.
      * Also contains the normal (non-vt-100) keyboard.
      */
-    private class MyEditText extends EditText implements TextWatcher {
+    private class ShellEditText extends EditText implements TextWatcher {
         private boolean readingkb;
         private Paint bgpaint;                       // used to paint text background rectangles
         private Paint cursorPaint;                   // used to paint cursor
@@ -285,7 +293,7 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
         private Paint selectPaint;                   // background paint for selected text
         private Paint showeolPaint;                  // paints the EOL character
 
-        public MyEditText ()
+        public ShellEditText ()
         {
             super (sshclient);
             addTextChangedListener (this);
@@ -343,7 +351,7 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
          * Panning (scrolling) the text.
          */
         @Override
-        public boolean onTouchEvent (MotionEvent me)
+        public boolean onTouchEvent (@NonNull MotionEvent me)
         {
             panning.OnTouchEvent (me);
             return super.onTouchEvent (me);
@@ -353,7 +361,7 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
          * We were invalidated via invalidate(), so draw all the text to the canvas.
          */
         @Override
-        protected void onDraw (Canvas canvas)
+        protected void onDraw (@NonNull Canvas canvas)
         {
             long uptimemillis = SystemClock.uptimeMillis ();
 
@@ -747,7 +755,7 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
         }
 
         /**
-         * @brief Draw run of characters of common attributes
+         * Draw run of characters of common attributes
          * @param canvas = canvas to draw characters on
          * @param attrs = attributes to draw characters with
          * @param runbeg = beginning twt[] index inclusive
@@ -943,7 +951,7 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
 
         // process enter and delete keys
         @Override
-        public boolean dispatchKeyEvent (KeyEvent ke)
+        public boolean dispatchKeyEvent (@NonNull KeyEvent ke)
         {
             if (ke.getAction () == KeyEvent.ACTION_DOWN) {
                 switch (ke.getKeyCode ()) {
@@ -1056,8 +1064,8 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
             coasting = false;
             if (!isDown && (mousemoveat_t > mousedownat_t)) {
                 float ratio  = 0.875F * (float)(SystemClock.uptimeMillis () - mousemoveat_t) / (float)(mousemoveat_t - mousedownat_t);
-                float new_dx = (float)(mousemoveat_x - mousedownat_x) * ratio;
-                float new_dy = (float)(mousemoveat_y - mousedownat_y) * ratio;
+                float new_dx = (mousemoveat_x - mousedownat_x) * ratio;
+                float new_dy = (mousemoveat_y - mousedownat_y) * ratio;
                 float new_x  = mousemoveat_x + new_dx;
                 float new_y  = mousemoveat_y + new_dy;
                 Panning (new_x, new_y, new_dx, new_dy);
@@ -1136,11 +1144,26 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
     public void ProcessKeyboardString (String str)
     {
         for (char chr : str.toCharArray ()) {
+            if (ctrlkeyflag && (chr >= 0x40) && (chr <= 0x7F)) chr = (char) (chr & 0x1F);
+            ctrlkeyflag = false;
             if (frozen) {
                 ProcessSelectionChar (chr);
             } else {
-                session.SendCharToHost (chr);
+                SendCharToHostShell (chr);
             }
+        }
+    }
+
+    /**
+     * Send keyboard character(s) on to host for processing.
+     * Don't send anything while frozen because the remote host might be blocked
+     * and so the TCP link to the host is blocked and so we would block.
+     */
+    private void SendCharToHostShell (int code)
+    {
+        char[] array = new char[] { (char)code };
+        if (!screenTextBuffer.SendStringToHostShell (new String (array))) {
+            SshClient.MakeBeepSound ();
         }
     }
 
@@ -1199,7 +1222,7 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
             }
             default: {
                 Log.w (TAG, "ignoring keyboard char <" + ch + "> while frozen");
-                sshclient.MakeBeepSound ();
+                SshClient.MakeBeepSound ();
                 break;
             }
         }
@@ -1228,58 +1251,14 @@ public class ScreenTextView extends LinearLayout implements View.OnFocusChangeLi
                 new String (twt, beg, len) :
                 new String (twt, beg, twm + 1 - beg) + new String (twt, 0, ++ end);
 
-        // start making an alert box
-        AlertDialog.Builder ab = new AlertDialog.Builder (sshclient);
-        ab.setTitle ("Copy to clipboard?");
-
-        // its message is the selected string
-        StringBuilder msg = new StringBuilder (len);
-        if (len <= 50) {
-            AppendSanitized (msg, subseq, 0, len);
-        } else {
-            AppendSanitized (msg, subseq, 0, 24);
-            msg.append ("...");
-            AppendSanitized (msg, subseq, len - 24, len);
-        }
-        ab.setMessage (msg.toString ());
-
-        // Internal button does the copy then deselects string
-        ab.setPositiveButton ("Internal", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton) {
-                sshclient.internalClipboard = subseq;
+        // display alert box that copies string to the clipboard
+        sshclient.CopyToClipboard (subseq, new Runnable () {
+            @Override
+            public void run ()
+            {
                 selectActive = false;
                 edtx.invalidate ();
             }
         });
-
-        // External button does the copy then deselects string
-        ab.setNeutralButton ("External", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton) {
-                ClipboardManager cbm = (ClipboardManager)sshclient.getSystemService (Context.CLIPBOARD_SERVICE);
-                cbm.setText (subseq);
-                selectActive = false;
-                edtx.invalidate ();
-            }
-        });
-
-        // Cancel button just leaves everything as is
-        ab.setNegativeButton ("Cancel", null);
-
-        // display the dialog box
-        ab.show ();
-    }
-
-    /**
-     * Make sure there are no newlines in the text for the message box.
-     * That should be the only control character in the given text.
-     */
-    private void AppendSanitized (StringBuilder msg, CharSequence buf, int beg, int end)
-    {
-        for (int i = beg; i < end; i ++) {
-            char c = buf.charAt (i);
-            if (c == '\n') msg.append ("\\n");
-            else if (c == '\\') msg.append ("\\\\");
-            else msg.append (c);
-        }
     }
 }

@@ -34,6 +34,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.SystemClock;
+import android.support.annotation.NonNull;
 import android.text.Editable;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
@@ -130,7 +131,6 @@ public class FileExplorerView extends LinearLayout {
     private Button navRiteBut;                                  // goes rightward in fileExplorerNavList
     private FileExplorerNav currentNav;                         // currently displayed nav window
     private FileExplorerNav localCacheNav;                      // nav window that holds local cache directory
-    private HorizontalScrollView funcButtonRowSV;               // function button scroller
     private HorizontalScrollView selectedFilesViewSV;           // selectedFilesView scroller
     private int xfersRunning;                                   // number of transfers in progress
     private IFile localCacheDir;                                // directory within localCacheNav that can hold temp files
@@ -157,7 +157,7 @@ public class FileExplorerView extends LinearLayout {
 
         funcButtonRowLL = new LinearLayout (sshclient);
         funcButtonRowLL.setOrientation (LinearLayout.HORIZONTAL);
-        funcButtonRowSV = new HorizontalScrollView (sshclient);
+        HorizontalScrollView funcButtonRowSV = new HorizontalScrollView (sshclient);
         funcButtonRowSV.addView (funcButtonRowLL);
 
         navLeftBut = sshclient.MyButton ();
@@ -1439,7 +1439,7 @@ public class FileExplorerView extends LinearLayout {
 
         // implementations cannot save GUI references in instance variables
         public interface WhenDone {
-            public void whenDone (FileExplorerView fev, Exception e);
+            void whenDone (FileExplorerView fev, Exception e);
         }
 
         // things preserved by service
@@ -1653,7 +1653,7 @@ public class FileExplorerView extends LinearLayout {
             return list.values ().contains (object);
         }
 
-        @Override public boolean containsAll(Collection<?> collection)
+        @Override public boolean containsAll (@NonNull Collection<?> collection)
         {
             throw new UnsupportedOperationException ();
         }
@@ -1663,7 +1663,7 @@ public class FileExplorerView extends LinearLayout {
             return list.isEmpty ();
         }
 
-        @Override public Iterator<Selected> iterator ()
+        @Override public @NonNull Iterator<Selected> iterator ()
         {
             return new ASFIterator ();
         }
@@ -1673,12 +1673,12 @@ public class FileExplorerView extends LinearLayout {
             throw new UnsupportedOperationException ();
         }
 
-        @Override public boolean removeAll (Collection<?> collection)
+        @Override public boolean removeAll (@NonNull Collection<?> collection)
         {
             throw new UnsupportedOperationException ();
         }
 
-        @Override public boolean retainAll (Collection<?> collection)
+        @Override public boolean retainAll (@NonNull Collection<?> collection)
         {
             throw new UnsupportedOperationException ();
         }
@@ -1688,12 +1688,14 @@ public class FileExplorerView extends LinearLayout {
             return list.size ();
         }
 
-        @Override public <T> T[] toArray (T[] array)
+        @Override
+        public @NonNull <T> T[] toArray (@NonNull T[] array)
         {
             return list.values ().toArray (array);
         }
 
-        @Override public Object[] toArray ()
+        @Override
+        public @NonNull Object[] toArray ()
         {
             throw new UnsupportedOperationException ();
         }
@@ -1716,7 +1718,7 @@ public class FileExplorerView extends LinearLayout {
             // so it doesn't appear to jump around as the user selects/
             // deselects files
             if (oldNLines != nLines) {
-                int dy = (int)((nLines - oldNLines) * selectedFilesView.getLineHeight ());
+                int dy = (nLines - oldNLines) * selectedFilesView.getLineHeight ();
                 mainScrollerSV.scrollBy (0, dy);
                 oldNLines = nLines;
             }

@@ -26,6 +26,7 @@ package com.outerworldapps.sshclient;
 
 
 import android.net.Uri;
+import android.support.annotation.NonNull;
 import android.util.Log;
 
 import com.jcraft.jsch.ChannelSftp;
@@ -58,7 +59,7 @@ public class SshIFile extends IFile {
 
     private static AtomicLong lastprobe = new AtomicLong (0);
     private static CleanupThread cleanupThread;
-    private static HashMap<Session,LinkedList<ChanEnt>> channelPool = new HashMap<Session,LinkedList<ChanEnt>> ();
+    private static final HashMap<Session,LinkedList<ChanEnt>> channelPool = new HashMap<Session,LinkedList<ChanEnt>> ();
 
     private GidUid giduid;         // holds the gid/uid of the user@host:port connected to
     private Session session;       // TCP connection that is logged in
@@ -740,12 +741,12 @@ public class SshIFile extends IFile {
 
         public void mark (int readlimit) { markpos = position; }
         public boolean markSupported () { return true; }
-        public int read (byte[] buffer) throws IOException { return read (buffer, 0, buffer.length); }
+        public int read (@NonNull byte[] buffer) throws IOException { return read (buffer, 0, buffer.length); }
         public int read () throws IOException { return (read (bbuf, 0, 1) <= 0) ? -1 : (int)bbuf[0] & 0xFF; }
         public synchronized void reset () throws IOException { seek (markpos); }
         public long skip (long count) throws IOException { seek (tell () + count); return count; }
 
-        public int read (byte[] buffer, int offset, int count) throws IOException
+        public int read (@NonNull byte[] buffer, int offset, int count) throws IOException
         {
             int rc = wrapped.read (buffer, offset, count);
             if (rc > 0) position += rc;
@@ -836,10 +837,10 @@ public class SshIFile extends IFile {
         // OutputStream
 
         public void flush () throws IOException { cacheLStat = cacheStat = null; wrapped.flush (); }
-        public void write (byte[] buffer) throws IOException { write (buffer, 0, buffer.length); }
+        public void write (@NonNull byte[] buffer) throws IOException { write (buffer, 0, buffer.length); }
         public void write (int oneByte) throws IOException { bbuf[0] = (byte) oneByte; write (bbuf, 0, 1); }
 
-        public void write (byte[] buffer, int offset, int count) throws IOException
+        public void write (@NonNull byte[] buffer, int offset, int count) throws IOException
         {
             cacheLStat = null;
             cacheStat  = null;
@@ -851,7 +852,7 @@ public class SshIFile extends IFile {
         {
             cacheLStat = null;
             cacheStat  = null;
-            synchronized (chanEnt) {
+            synchronized (this) {
                 try {
                     wrapped.close ();
                 } finally {

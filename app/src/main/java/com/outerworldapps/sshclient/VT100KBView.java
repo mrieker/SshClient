@@ -1,90 +1,65 @@
-package com.outerworldapps.sshclient;
-
-import android.app.Activity;
-import android.content.SharedPreferences;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Path;
-import android.graphics.Typeface;
-import android.os.Handler;
-import android.os.Message;
-import android.support.v7.widget.GridLayout;
-import android.util.Log;
-import android.util.TypedValue;
-import android.view.Gravity;
-import android.view.HapticFeedbackConstants;
-import android.view.MotionEvent;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.ViewParent;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.TextView;
-import android.widget.Toast;
-
-import java.util.LinkedList;
-
 /**
  * Implementation of a VT-100 keyboard including keypad.
  */
-public class VT100KBView extends LinearLayout {
-    private static final String TAG = "SshClient";
 
-    private static final int CLICKFEEDBACK  = 100;
-    private static final int MATCH_PARENT   = ViewGroup.LayoutParams.MATCH_PARENT;
-    private static final int MH_STOPFB      = 96;
-    private static final int MH_REPEATS     = 97;
-    private static final int MH_KBSCALE     = 98;
-    private static final int MH_BUTSIZE     = 99;
-    private static final int REPEAT_INITIAL = 500;
-    private static final int REPEAT_REPEAT  = 200;
-    private static final int WRAP_CONTENT   = ViewGroup.LayoutParams.WRAP_CONTENT;
-    private static final String ESC = "\033";
+//    Copyright (C) 2015, Mike Rieker, Beverly, MA USA
+//    www.outerworldapps.com
+//
+//    This program is free software; you can redistribute it and/or modify
+//    it under the terms of the GNU General Public License as published by
+//    the Free Software Foundation; version 2 of the License.
+//
+//    This program is distributed in the hope that it will be useful,
+//    but WITHOUT ANY WARRANTY; without even the implied warranty of
+//    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//    GNU General Public License for more details.
+//
+//    EXPECT it to FAIL when someone's HeALTh or PROpeRTy is at RISk.
+//
+//    You should have received a copy of the GNU General Public License
+//    along with this program; if not, write to the Free Software
+//    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+//
+//    http://www.gnu.org/licenses/gpl-2.0.html
 
-    private static Handler myHandler;
+package com.outerworldapps.sshclient;
 
-    private boolean cntrllock, cntrlmode;
-    private boolean shiftlock, shiftmode, shiftsaved;
-    private Button kbContrl;
-    private Button kbShift1;
-    private Button kbShift2;
-    private float scaleX;
-    private float scaleY;
-    private int butSize;
-    private LinkedList<KeyButton> allKeyButtons;
-    private LinkedList<KeyButton> allShiftButtons;
+
+import android.support.v7.widget.GridLayout;
+import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import java.util.LinkedList;
+
+public class VT100KBView extends KeybdView {
+    private final static String ESC = "\033";
+
     private MySession session;
-    private SharedPreferences prefs;
-    private SshClient sshclient;
-    private String repeatStr;
-    private Toast fbToast;
 
-    public VT100KBView (MySession s)
+    public VT100KBView (MySession s, KeyboardableView kv)
     {
-        super (s.getSshClient ());
-        session   = s;
-        sshclient = s.getSshClient ();
-
-        if (myHandler == null) myHandler = new MyHandler ();
-
-        prefs  = sshclient.getPreferences (Activity.MODE_PRIVATE);
-        scaleX = prefs.getFloat ("VT100KBView.scaleX", 1.0F);
-        scaleY = prefs.getFloat ("VT100KBView.scaleY", 1.0F);
-
-        BuildKeyboard ();
+        super (s, kv);
+        session = s;
     }
 
     /**
      * Build keyboard one button at a time.
      */
-    private void BuildKeyboard ()
+    @Override
+    protected void BuildKeyboard ()
     {
         removeAllViews ();
 
-        allKeyButtons   = new LinkedList<KeyButton> ();
-        allShiftButtons = new LinkedList<KeyButton> ();
-        butSize = 0;
+        allKeyButtons    = new LinkedList<KeyButton> ();
+        allKeypadButtons = new LinkedList<KeypadButton> ();
+        allShiftButtons  = new LinkedList<KeyButton> ();
+        butSize          = 0;
+
+        altButtons.buttons.clear ();
+        ctrlButtons.buttons.clear ();
+        shiftButtons.buttons.clear ();
 
         LinearLayout ll1 = this;
             ll1.setOrientation (LinearLayout.HORIZONTAL);
@@ -99,7 +74,7 @@ public class VT100KBView extends LinearLayout {
                     ll3.setOrientation (LinearLayout.HORIZONTAL);
                     ll3.setLayoutParams (new LinearLayout.LayoutParams (MATCH_PARENT, WRAP_CONTENT));
 
-                    ll3.addView (new WideButton (ESC, "ESC"));
+                    ll3.addView (new SizedButton (ESC, 1.0F, "ESC"));
                     ll3.addView (new LcUcButton ('1', '!'));
                     ll3.addView (new LcUcButton ('2', '@'));
                     ll3.addView (new LcUcButton ('3', '#'));
@@ -119,7 +94,7 @@ public class VT100KBView extends LinearLayout {
                     ll4.setOrientation (LinearLayout.HORIZONTAL);
                     ll4.setLayoutParams (new LinearLayout.LayoutParams (MATCH_PARENT, WRAP_CONTENT));
 
-                    ll4.addView (new WideButton ("\t", " TAB "));
+                    ll4.addView (new SizedButton ("\t", 1.3F, "TAB"));
                     ll4.addView (new LetterButton ('Q'));
                     ll4.addView (new LetterButton ('W'));
                     ll4.addView (new LetterButton ('E'));
@@ -139,9 +114,9 @@ public class VT100KBView extends LinearLayout {
                     ll5.setOrientation (LinearLayout.HORIZONTAL);
                     ll5.setLayoutParams (new LinearLayout.LayoutParams (MATCH_PARENT, WRAP_CONTENT));
 
-                    kbContrl = new CtrlButton ();
-                    ll5.addView (kbContrl);
+                    SizedButton retbut = new SizedButton ("\r", 1.6F, "RETURN");
 
+                    ll5.addView (new LockableButton (null, null, ctrlButtons, 1.7F, "CTRL"));
                     ll5.addView (new LetterButton ('A'));
                     ll5.addView (new LetterButton ('S'));
                     ll5.addView (new LetterButton ('D'));
@@ -153,16 +128,14 @@ public class VT100KBView extends LinearLayout {
                     ll5.addView (new LetterButton ('L'));
                     ll5.addView (new LcUcButton (';', ':'));
                     ll5.addView (new LcUcButton ('\'', '"'));
-                    ll5.addView (new WideButton ("\r", "RETURN"));
+                    ll5.addView (retbut);
                 ll2.addView (ll5);
 
                 LinearLayout ll6 = new LinearLayout (sshclient);
                     ll6.setOrientation (LinearLayout.HORIZONTAL);
                     ll6.setLayoutParams (new LinearLayout.LayoutParams (MATCH_PARENT, WRAP_CONTENT));
 
-                    kbShift1 = new ShiftButton ();
-                    ll6.addView (kbShift1);
-
+                    ll6.addView (new LockableButton (null, null, shiftButtons, 2.0F, "SHIFT"));
                     ll6.addView (new LetterButton ('Z'));
                     ll6.addView (new LetterButton ('X'));
                     ll6.addView (new LetterButton ('C'));
@@ -174,24 +147,21 @@ public class VT100KBView extends LinearLayout {
                     ll6.addView (new LcUcButton ('.', '>'));
                     ll6.addView (new LcUcButton ('/', '?'));
 
-                    kbShift2 = new ShiftButton ();
-                    ll6.addView (kbShift2);
-
-                    ll6.addView (new WideButton ("\177", "  DEL  "));
+                    ll6.addView (new LockableButton (null, null, shiftButtons, 2.0F, "SHIFT"));
                 ll2.addView (ll6);
 
                 LinearLayout ll7 = new LinearLayout (sshclient);
                     ll7.setOrientation (LinearLayout.HORIZONTAL);
                     ll7.setLayoutParams (new LinearLayout.LayoutParams (MATCH_PARENT, WRAP_CONTENT));
 
-                    ll7.addView (new WideButton ("\n", "LINEFEED"));
-                    ll7.addView (new WideButton ("\b", "BACKSPACE"));
-                    ll7.addView (new WideButton (" ", "                                                              "));
-                    // http://unicode-table.com/en
-                    ll7.addView (new ArrowButton ('A', 0x25B2, new int[] { 4, 2, 2, 6, 6, 6, 4, 2 }));
-                    ll7.addView (new ArrowButton ('B', 0x25BC, new int[] { 4, 6, 2, 2, 6, 2, 4, 6 }));
-                    ll7.addView (new ArrowButton ('D', 0x25C0, new int[] { 2, 4, 6, 2, 6, 6, 2, 4 }));
-                    ll7.addView (new ArrowButton ('C', 0x25B6, new int[] { 6, 4, 2, 2, 2, 6, 6, 4 }));
+                    ll7.addView (new SizedButton ("\n", 2.0F, "LINEFEED", retbut));
+                    ll7.addView (new SizedButton ("\b", 2.1F, "BACKSPACE", retbut));
+                    ll7.addView (new SizedButton (" ", 4.3F, " "));
+                    ll7.addView (new ArrowButton (ESC + "[A", ArrowButton.UP));
+                    ll7.addView (new ArrowButton (ESC + "[B", ArrowButton.DN));
+                    ll7.addView (new ArrowButton (ESC + "[D", ArrowButton.LF));
+                    ll7.addView (new ArrowButton (ESC + "[C", ArrowButton.RT));
+                    ll7.addView (new SizedButton ("\177", 1.6F, "DEL"));
                 ll2.addView (ll7);
             ll1.addView (ll2);
 
@@ -208,64 +178,51 @@ public class VT100KBView extends LinearLayout {
                 gl1.addView (new KPFuncButton (ESC + "OR", "PF3", 2));
                 gl1.addView (new KPFuncButton (ESC + "OS", "PF4", 3));
 
-                gl1.addView (new KPDigitButton ('7', ESC + "Ow", 0, 1, 1, 1));
-                gl1.addView (new KPDigitButton ('8', ESC + "Ox", 1, 1, 1, 1));
-                gl1.addView (new KPDigitButton ('9', ESC + "Oy", 2, 1, 1, 1));
-                gl1.addView (new KPDigitButton ('-', ESC + "Om", 3, 1, 1, 1));
+                gl1.addView (new KPDigitButton ("7", ESC + "Ow", 0, 1, 1, 1));
+                gl1.addView (new KPDigitButton ("8", ESC + "Ox", 1, 1, 1, 1));
+                gl1.addView (new KPDigitButton ("9", ESC + "Oy", 2, 1, 1, 1));
+                gl1.addView (new KPDigitButton ("-", ESC + "Om", 3, 1, 1, 1));
 
-                gl1.addView (new KPDigitButton ('4', ESC + "Ot", 0, 2, 1, 1));
-                gl1.addView (new KPDigitButton ('5', ESC + "Ou", 1, 2, 1, 1));
-                gl1.addView (new KPDigitButton ('6', ESC + "Ov", 2, 2, 1, 1));
-                gl1.addView (new KPDigitButton (',', ESC + "Ol", 3, 2, 1, 1));
+                gl1.addView (new KPDigitButton ("4", ESC + "Ot", 0, 2, 1, 1));
+                gl1.addView (new KPDigitButton ("5", ESC + "Ou", 1, 2, 1, 1));
+                gl1.addView (new KPDigitButton ("6", ESC + "Ov", 2, 2, 1, 1));
+                gl1.addView (new KPDigitButton (",", ESC + "Ol", 3, 2, 1, 1));
 
-                gl1.addView (new KPDigitButton ('1', ESC + "Oq", 0, 3, 1, 1));
-                gl1.addView (new KPDigitButton ('2', ESC + "Or", 1, 3, 1, 1));
-                gl1.addView (new KPDigitButton ('3', ESC + "Os", 2, 3, 1, 1));
-                gl1.addView (new KPEnterButton ());
+                gl1.addView (new KPDigitButton ("1", ESC + "Oq", 0, 3, 1, 1));
+                gl1.addView (new KPDigitButton ("2", ESC + "Or", 1, 3, 1, 1));
+                gl1.addView (new KPDigitButton ("3", ESC + "Os", 2, 3, 1, 1));
+                gl1.addView (new KeypadButton (3, 3, 1, 2, "\r", "E\nn\nt\ne\nr", ESC + "OM", "E\nn\nt\ne\nr", null));
 
-                gl1.addView (new KPDigitButton ('0', ESC + "Op", 0, 4, 2, 1));
-                gl1.addView (new KPDigitButton ('.', ESC + "On", 2, 4, 1, 1));
+                gl1.addView (new KPDigitButton ("0", ESC + "Op", 0, 4, 2, 1));
+                gl1.addView (new KPDigitButton (".", ESC + "On", 2, 4, 1, 1));
             ll1.addView (gl1);
-
-        SetCtrlShiftColors ();
     }
 
     /**
-     * After key is released, reset ctrl & shift modes.
-     * Invalidate shiftable buttons if the shift mode changed so they can re-draw their legends.
-     */
-    private void KeyReleased (boolean sent)
-    {
-        if (sent) {
-            cntrlmode = cntrllock;
-            shiftmode = shiftlock;
-        }
-        SetCtrlShiftColors ();
-        if (shiftsaved != shiftmode) {
-            shiftsaved = shiftmode;
-            for (KeyButton b : allShiftButtons) {
-                b.invalidate ();
-            }
-        }
-    }
-
-    /**
-     * Set the colors of the ctrl & shift keys.
-     */
-    private void SetCtrlShiftColors ()
-    {
-        kbContrl.setTextColor (cntrllock ? Color.RED : cntrlmode ? Color.GREEN : Color.BLACK);
-        kbShift1.setTextColor (shiftlock ? Color.RED : shiftmode ? Color.GREEN : Color.BLACK);
-        kbShift2.setTextColor (shiftlock ? Color.RED : shiftmode ? Color.GREEN : Color.BLACK);
-    }
-
-    /**
-     * Send the given string to the host.
+     * Send the given key code to the host.
      * It may be either a single character or multiple chars as in an escape sequence.
      */
-    private void SendToHost (String str)
+    @Override
+    protected void SendCodeToHost (Object code, int down)
     {
-        /*{
+        if ((code != null) && (down != 0)) {
+            String str = (String) code;
+
+            // maybe control key is in effect for letter keys
+            if ((str.length () == 1) && (ctrlButtons.mode != MODE_OFF)) {
+                char chr = str.charAt (0);
+                if ((chr >= 0x40) && (chr <= 0x7F)) {
+                    str = new String (new char[] { (char) (chr & 0x1F) });
+                }
+            }
+
+            // maybe cursor app mode is in effect for arrow keys
+            if ((str.length () == 3) && (str.charAt (0) == ESC.charAt (0)) && (str.charAt(1) == '[') && session.getScreentextbuffer ().cursorappmode) {
+                char chr = str.charAt (2);
+                if ((chr >= 'A') && (chr <= 'D')) str = ESC + "O" + chr;
+            }
+
+            /*{
             StringBuffer sb = new StringBuffer ();
             for (char c : str.toCharArray ()) {
                 if ((c >= 32) && (c != '\\') && (c != 127)) sb.append (c);
@@ -285,724 +242,52 @@ public class VT100KBView extends LinearLayout {
                 }
             }
             Log.d (TAG, "to host '" + sb.toString () + "'");
-        }*/
+            }*/
 
-        session.getScreentextview ().ProcessKeyboardString (str);
-        performHapticFeedback (HapticFeedbackConstants.KEYBOARD_TAP);
-    }
-
-    /**
-     * Handle processing in GUI thread at top level.
-     */
-    private static class MyHandler extends Handler {
-        public void handleMessage (Message m) {
-            switch (m.what) {
-
-                // stop feedback
-                case MH_STOPFB: {
-                    KeyButton kb = (KeyButton) m.obj;
-                    kb.StopFeedback ();
-                    break;
-                }
-
-                // repeated key
-                case MH_REPEATS: {
-                    VT100KBView kbv = (VT100KBView) m.obj;
-                    if (kbv.repeatStr != null) {
-                        kbv.SendToHost (kbv.repeatStr);
-                        m = myHandler.obtainMessage ();
-                        m.what = MH_REPEATS;
-                        m.obj = kbv;
-                        myHandler.sendMessageDelayed (m, REPEAT_REPEAT);
-                    }
-                    break;
-                }
-
-                // keyboard resized
-                case MH_KBSCALE: {
-                    VT100KBView kbv = (VT100KBView) m.obj;
-                    kbv.BuildKeyboard ();
-
-                    SharedPreferences.Editor editr = kbv.prefs.edit ();
-                    editr.putFloat ("VT100KBView.scaleX", kbv.scaleX);
-                    editr.putFloat ("VT100KBView.scaleY", kbv.scaleY);
-                    editr.commit ();
-                    break;
-                }
-
-                // buttons resized
-                case MH_BUTSIZE: {
-                    VT100KBView kbv = (VT100KBView) m.obj;
-                    int bs = kbv.butSize;
-                    for (KeyButton b : kbv.allKeyButtons) {
-                        b.setStdSize (bs);
-                    }
-                    kbv.requestLayout ();
-                    break;
-                }
-            }
+            session.getScreentextview ().ProcessKeyboardString (str);
+            performHapticFeedback (HapticFeedbackConstants.KEYBOARD_TAP);
         }
     }
 
     /**
-     * These are the letter buttons, A-Z
+     * Get the code for a given lowercase/uppercase key code logo string
+     * @param str = logo string on keytop
+     * @return code to give to SendCodeToHost()
      */
-    private class LetterButton extends SingleButton {
-        private String ctrlstr;
-        private String lcstr;
-        private String ucstr;
+    @Override
+    protected Object GetLcUcCode (CharSequence str)
+    {
+        return str;
+    }
 
-        public LetterButton (char uc)
-        {
-            super (uc);
-
-            setLayoutParams (new LinearLayout.LayoutParams (WRAP_CONTENT, MATCH_PARENT));
-
-            ctrlstr = new String (new char [] { (char) (uc - 64) });
-            lcstr   = new String (new char [] { (char) (uc + 32) });
-            ucstr   = new String (new char [] { uc });
-
-            // we need to be re-drawn whenever shiftmode changes
-            allShiftButtons.addLast (this);
-        }
-
-        @Override  // KeyButton
-        public void setStdSize (int size)
-        {
-            setWidth (size);
-            setHeight (size);
-        }
-
-        @Override  // KeyButton
-        public String decode ()
-        {
-            if (cntrlmode) return ctrlstr;
-            if (shiftmode) return ucstr;
-            return lcstr;
-        }
-
-        @Override  // KeyButton
-        public CharSequence feedback ()
-        {
-            if (cntrlmode) return "^" + ucstr;
-            if (shiftmode) return ucstr;
-            return lcstr;
-        }
-
-        @Override  // SingleButton
-        public void onDraw (Canvas c)
-        {
-            letter[0] = (shiftmode ? ucstr : lcstr).charAt (0);
-            super.onDraw (c);
-        }
+    /**
+     * Get whether or not the keypad is in numeric or application mode.
+     * @return true: send numeric codes to host
+     *        false: send application codes to host
+     */
+    @Override
+    protected boolean GetKeypadAppMode ()
+    {
+        return (session != null) && session.getScreentextbuffer ().keypadappmode;
     }
 
     /**
      * These are the keypad digit buttons, 0-9
      */
-    private class KPDigitButton extends SingleButton {
-        private int wid, hei;
-        private String appstr;
-        private String numstr;
-
-        public KPDigitButton (char num, String app, int x, int y, int w, int h)
+    private class KPDigitButton extends KeypadButton {
+        public KPDigitButton (String num, String app, int x, int y, int w, int h)
         {
-            super (num);
-
-            wid = w;
-            hei = h;
-
-            GridLayout.LayoutParams glp = new GridLayout.LayoutParams ();
-            glp.columnSpec = GridLayout.spec (x, w);
-            glp.rowSpec    = GridLayout.spec (y, h);
-            setLayoutParams (glp);
-
-            appstr = app;
-            numstr = new String (new char[] { num });
-        }
-
-        @Override  // KeyButton
-        public void setStdSize (int size)
-        {
-            setWidth  (size * wid);
-            setHeight (size * hei);
-        }
-
-        @Override  // KeyButton
-        public String decode ()
-        {
-            boolean appmode = session.getScreentextbuffer ().keypadappmode;
-            return appmode ? appstr : numstr;
-        }
-
-        @Override  // KeyButton
-        public CharSequence feedback ()
-        {
-            return numstr;
-        }
-    }
-
-    /**
-     * A keyboard or keypad button with a single character legend.
-     */
-    private abstract class SingleButton extends KeyButton {
-        protected char[] letter;
-        private Paint paint;
-        private Paint.FontMetrics metrics;
-
-        public SingleButton (char l)
-        {
-            setTypeface (Typeface.MONOSPACE);
-            setText ("   ");
-
-            letter = new char[] { l };
-
-            paint = new Paint ();
-            paint.setColor (getPaint ().getColor ());
-            paint.setStrokeWidth (getPaint ().getStrokeWidth () * 2);
-            paint.setTextAlign (Paint.Align.CENTER);
-            paint.setTextSize (getTextSize () * 2.0F);
-
-            metrics = new Paint.FontMetrics ();
-        }
-
-        /**
-         * Draw the single character twice as big as Android thinks it is.
-         * We have the normal button draw 3 monospaced spaces to make room.
-         */
-        @Override  // Button
-        public void onDraw (Canvas canvas)
-        {
-            // this should give us a button with spaces big enough for us
-            super.onDraw (canvas);
-
-            // draw the oversized character
-            paint.getFontMetrics (metrics);
-
-            float x = getWidth () / 2.0F;
-            float y = (getHeight () - metrics.ascent - metrics.descent) / 2.0F;
-
-            canvas.drawText (letter, 0, 1, x, y, paint);
-
-            // also, if this is the '0' button,
-            // resize all the buttons relative to this one
-            if ((butSize == 0) && (letter[0] == '0')) {
-                butSize = (int) (getHeight () * scaleY);
-                if (butSize > 0) {
-                    Log.d (TAG, "VT100KBView.onDraw: butSize=" + butSize);
-                    if (myHandler != null) {
-                        Message m = myHandler.obtainMessage ();
-                        m.what = MH_BUTSIZE;
-                        m.obj  = VT100KBView.this;
-                        myHandler.sendMessage (m);
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * These are the keys that have upper/lower case characters, eg, ! 1
-     */
-    private class LcUcButton extends KeyButton {
-        private Paint bigpaint, smlpaint;
-        private Paint.FontMetrics metrics;
-        private String lcstr;
-        private String ucstr;
-
-        public LcUcButton (char lc, char uc)
-        {
-            setLayoutParams (new LinearLayout.LayoutParams (WRAP_CONTENT, MATCH_PARENT));
-
-            setTypeface (Typeface.MONOSPACE);
-            setText ("   ");
-
-            bigpaint = new Paint ();
-            bigpaint.setColor (getPaint ().getColor ());
-            bigpaint.setStrokeWidth (getPaint ().getStrokeWidth () * 2);
-            bigpaint.setTextAlign (Paint.Align.CENTER);
-            bigpaint.setTextSize (getTextSize () * 2.0F);
-
-            smlpaint = new Paint ();
-            smlpaint.setColor (getPaint ().getColor ());
-            smlpaint.setStrokeWidth (getPaint ().getStrokeWidth ());
-            smlpaint.setTextAlign (Paint.Align.CENTER);
-            smlpaint.setTextSize (getTextSize ());
-
-            metrics = new Paint.FontMetrics ();
-
-            lcstr = new String (new char[] { lc });
-            ucstr = new String (new char[] { uc });
-
-            // we need to be re-drawn whenever shiftmode changes
-            allShiftButtons.addLast (this);
-        }
-
-        @Override  // KeyButton
-        public void setStdSize (int size)
-        {
-            setWidth (size);
-            setHeight (size);
-        }
-
-        @Override  // KeyButton
-        public String decode ()
-        {
-            String ret = shiftmode ? ucstr : lcstr;
-            if (cntrlmode) {
-                char chr = ret.charAt (0);
-                if ((chr >= 64) && (chr <= 95)) {
-                    ret = new String (new char[] { (char) (chr & 31) });
-                }
-            }
-            return ret;
-        }
-
-        @Override  // KeyButton
-        public CharSequence feedback ()
-        {
-            String ret = shiftmode ? ucstr : lcstr;
-            if (cntrlmode) {
-                char chr = ret.charAt (0);
-                if ((chr >= 64) && (chr <= 95)) {
-                    ret = "^" + ret;
-                }
-            }
-            return ret;
-        }
-
-        /**
-         * Draw active character oversized.
-         * Draw inactive characer undersized in upper left corner.
-         */
-        @Override  // Button
-        public void onDraw (Canvas canvas)
-        {
-            super.onDraw (canvas);
-
-            String fgstr = shiftmode ? ucstr : lcstr;
-            String bgstr = shiftmode ? lcstr : ucstr;
-
-            bigpaint.getFontMetrics (metrics);
-
-            float fgx = getWidth () / 2.0F;
-            float fgy = (getHeight () - metrics.ascent - metrics.descent) / 2.0F;
-
-            canvas.drawText (fgstr, 0, 1, fgx, fgy, bigpaint);
-
-            smlpaint.getFontMetrics (metrics);
-
-            float bgx = getWidth ()  / 5.0F;
-            float bgy = getHeight () / 5.0F - metrics.ascent / 2.0F - metrics.descent / 2.0F;
-
-            canvas.drawText (bgstr, 0, 1, bgx, bgy, smlpaint);
-        }
-    }
-
-    /**
-     * Up, Down, Left, Right arrow keys.
-     */
-    private class ArrowButton extends KeyButton implements View.OnClickListener {
-        private char letter;
-        private int[] rawpath;
-        private Path guipath = new Path ();
-        private String appstr, curstr, fbstr;
-
-        public ArrowButton (char l, int fbchr, int[] p)
-        {
-            setLayoutParams (new LinearLayout.LayoutParams (WRAP_CONTENT, MATCH_PARENT));
-
-            letter  = l;
-            appstr  = ESC + "O" + l;
-            curstr  = ESC + "[" + l;
-            rawpath = p;
-
-            fbstr = new String (new char[] { (char) fbchr });
-
-            // set up a button same size as letter buttons
-            setTypeface (Typeface.MONOSPACE);
-            setText ("   ");
-        }
-
-        @Override  // KeyButton
-        public void setStdSize (int size)
-        {
-            setHeight (size);
-            setWidth (size);
-
-            int w = getWidth ();
-            int h = getHeight ();
-
-            guipath.rewind ();
-
-            for (int i = 0; i < rawpath.length;) {
-                float x = w * rawpath[i++] / 8.0F;
-                float y = h * rawpath[i++] / 8.0F;
-                if (i == 0) guipath.moveTo (x, y);
-                else guipath.lineTo (x, y);
-            }
-
-            invalidate ();
-        }
-
-        @Override  // KeyButton
-        public String decode ()
-        {
-            boolean appmode = session.getScreentextbuffer ().cursorappmode;
-            return appmode ? appstr : curstr;
-        }
-
-        @Override  // KeyButton
-        public CharSequence feedback ()
-        {
-            return fbstr;
-        }
-
-        @Override  // KeyButton
-        public void onClick (View v)
-        {
-            if (cntrllock && shiftlock) {
-                switch (letter) {
-                    case 'A': {
-                        scaleY *= 1.125F;
-                        break;
-                    }
-                    case 'B': {
-                        scaleY /= 1.125F;
-                        break;
-                    }
-                    case 'C': {
-                        scaleX *= 1.125F;
-                        break;
-                    }
-                    case 'D': {
-                        scaleX /= 1.125F;
-                        break;
-                    }
-                }
-                Log.d (TAG, "VT100KBView: scaleX,Y=" + scaleX + "," + scaleY);
-                Message m = myHandler.obtainMessage ();
-                m.what = MH_KBSCALE;
-                m.obj  = VT100KBView.this;
-                myHandler.sendMessage (m);
-            } else {
-                super.onClick (v);
-            }
-        }
-
-        @Override  // Button
-        public void onDraw (Canvas c)
-        {
-            // draw blank button
-            super.onDraw (c);
-
-            // draw arrow
-            c.drawPath (guipath, getPaint ());
-        }
-    }
-
-    /**
-     * Buttons with wide strings such as TAB and RETURN.
-     */
-    private class WideButton extends KeyButton {
-        protected String str;
-
-        public WideButton (String s, String logo)
-        {
-            str = s;
-
-            setLayoutParams (new LinearLayout.LayoutParams (WRAP_CONTENT, MATCH_PARENT));
-            setText (logo);
-        }
-
-        @Override  // KeyButton
-        public void setStdSize (int size)
-        {
-            setHeight (size);
-        }
-
-        @Override  // KeyButton
-        public String decode ()
-        {
-            return str;
-        }
-
-        @Override  // KeyButton
-        public CharSequence feedback ()
-        {
-            return str.equals (" ") ? null : getText ();
+            super (x, y, w, h, num, num, app, num);
         }
     }
 
     /**
      * Keypad PF<n> button.
      */
-    private class KPFuncButton extends KeyButton {
-        private String str;
-
+    private class KPFuncButton extends KeypadButton {
         public KPFuncButton (String s, String logo, int x)
         {
-            str = s;
-
-            GridLayout.LayoutParams glp = new GridLayout.LayoutParams ();
-            glp.columnSpec = GridLayout.spec (x, 1);
-            glp.rowSpec    = GridLayout.spec (0, 1);
-            setLayoutParams (glp);
-            setTypeface (Typeface.MONOSPACE);
-            setText (logo);
-        }
-
-        @Override  // KeyButton
-        public void setStdSize (int size)
-        {
-            setWidth (size);
-            setHeight (size);
-        }
-
-        @Override  // KeyButton
-        public String decode ()
-        {
-            return str;
-        }
-
-        @Override  // KeyButton
-        public CharSequence feedback ()
-        {
-            return getText ();
-        }
-    }
-
-    /**
-     * Keypad ENTER key.
-     */
-    private class KPEnterButton extends KeyButton {
-        public KPEnterButton ()
-        {
-            GridLayout.LayoutParams glp = new GridLayout.LayoutParams ();
-            glp.columnSpec = GridLayout.spec (3, 1);
-            glp.rowSpec    = GridLayout.spec (3, 2);
-            setLayoutParams (glp);
-            setTypeface (Typeface.MONOSPACE);
-            setText (" E \n N \n T \n E \n R ");
-            setTextSize (TypedValue.COMPLEX_UNIT_PX, getTextSize () * 0.8F);
-        }
-
-        @Override
-        public void setStdSize (int size)
-        {
-            setWidth (size);
-            setHeight (size * 2);
-        }
-
-        @Override
-        public String decode ()
-        {
-            boolean appmode = session.getScreentextbuffer ().keypadappmode;
-            return appmode ? ESC + "OM" : "\r";
-        }
-
-        @Override  // KeyButton
-        public CharSequence feedback ()
-        {
-            return "ENTER";
-        }
-    }
-
-    /**
-     * Control (CTRL) button.
-     */
-    private class CtrlButton extends KeyButton {
-        public CtrlButton ()
-        {
-            setLayoutParams (new LinearLayout.LayoutParams (WRAP_CONTENT, MATCH_PARENT));
-            setText (" CTRL ");
-        }
-
-        @Override  // KeyButton
-        public void setStdSize (int size)
-        {
-            setHeight (size);
-        }
-
-        @Override  // KeyButton
-        public String decode ()
-        {
-            cntrllock = cntrlmode & !cntrllock;
-            cntrlmode = cntrllock | !cntrlmode;
-            return null;
-        }
-
-        @Override  // KeyButton
-        public CharSequence feedback ()
-        {
-            return null;
-        }
-    }
-
-    /**
-     * Shift (SHIFT) button.
-     */
-    private class ShiftButton extends KeyButton {
-        public ShiftButton ()
-        {
-            setLayoutParams (new LinearLayout.LayoutParams (WRAP_CONTENT, MATCH_PARENT));
-            setText (" SHIFT ");
-        }
-
-        @Override  // KeyButton
-        public void setStdSize (int size)
-        {
-            setHeight (size);
-        }
-
-        @Override  // KeyButton
-        public String decode ()
-        {
-            shiftlock = shiftmode & !shiftlock;
-            shiftmode = shiftlock | !shiftmode;
-            return null;
-        }
-
-        @Override  // KeyButton
-        public CharSequence feedback ()
-        {
-            return null;
-        }
-    }
-
-    /**
-     * Just like a button, except provides method to decode to get key's string.
-     */
-    private abstract class KeyButton extends Button
-            implements View.OnClickListener, View.OnLongClickListener {
-        public KeyButton ()
-        {
-            super (sshclient);
-
-            setTextSize (TypedValue.COMPLEX_UNIT_PX, getTextSize () * scaleY);
-
-            setOnClickListener (this);
-            setOnLongClickListener (this);
-
-            allKeyButtons.addLast (this);
-        }
-
-        public abstract void setStdSize (int size);
-        public abstract String decode ();
-        public abstract CharSequence feedback ();
-
-        /**
-         * The key was clicked.  Decode it and send string to host.
-         */
-        @Override  // View.OnClickListener
-        public void onClick (View v)
-        {
-            // decode the key pressed and send string to host
-            String str = decode ();
-            if (str != null) {
-                SendToHost (str);
-                StartFeedback ();
-                Message m = myHandler.obtainMessage ();
-                m.what = MH_STOPFB;
-                m.obj  = this;
-                myHandler.sendMessageDelayed (m, CLICKFEEDBACK);
-            }
-
-            // update state of ctrl & shift keys
-            KeyReleased (str != null);
-        }
-
-        @Override  // View.OnLongClickListener
-        public boolean onLongClick (View v)
-        {
-            repeatStr = ((KeyButton) v).decode ();
-            if (repeatStr != null) {
-                SendToHost (repeatStr);
-                StartFeedback ();
-                Message m = myHandler.obtainMessage ();
-                m.what = MH_REPEATS;
-                m.obj  = VT100KBView.this;
-                myHandler.sendMessageDelayed (m, REPEAT_INITIAL);
-            } else {
-                KeyReleased (false);
-            }
-            return true;
-        }
-
-        @Override  // Button
-        public boolean onTouchEvent (MotionEvent event)
-        {
-            switch (event.getAction ()) {
-                case MotionEvent.ACTION_UP: {
-                    StopFeedback ();
-                    if (repeatStr != null) {
-                        repeatStr = null;
-                        KeyReleased (true);
-                    }
-                    break;
-                }
-            }
-
-            return super.onTouchEvent (event);
-        }
-
-        /**
-         * Display visual feedback showing which key was pressed.
-         */
-        private void StartFeedback ()
-        {
-            // if some feedback already shown for any key, get rid of it
-            StopFeedback ();
-
-            // see if this key provides any feedback
-            CharSequence fb = feedback ();
-            if (fb != null) {
-
-                // get size and absolute position of this button
-                int w = getWidth ();
-                int h = getHeight ();
-
-                int x = getLeft () - getScrollX ();
-                int y = getTop ()  - getScrollY ();
-                ViewParent parent;
-                for (parent = getParent (); parent != null; parent = parent.getParent ()) {
-                    if (parent instanceof View) {
-                        View pv = (View) parent;
-                        x += pv.getLeft () - pv.getScrollX ();
-                        y += pv.getTop ()  - pv.getScrollY ();
-                    }
-                }
-
-                // create a simple text box to display the feedback string
-                TextView tv = new TextView (sshclient);
-                tv.setBackgroundColor (Color.DKGRAY);
-                tv.setTextColor (Color.WHITE);
-                float ts = getTextSize ();
-                if (fb.length () <= 2) ts *= 2.0F;
-                tv.setTextSize (TypedValue.COMPLEX_UNIT_PX, ts);
-                tv.setGravity (Gravity.CENTER);  // center the text in the box
-                tv.setWidth (w);
-                tv.setHeight (h);
-                tv.setText (fb);
-
-                // display it as a popup toast message just above the key button
-                fbToast = new Toast (sshclient);
-                fbToast.setView (tv);
-                fbToast.setGravity (Gravity.TOP | Gravity.LEFT, x, y - h * 2);
-                fbToast.setDuration (Toast.LENGTH_LONG);
-                fbToast.show ();
-            }
-        }
-
-        /**
-         * Remove visual feedback.
-         */
-        public void StopFeedback ()
-        {
-            if (fbToast != null) {
-                fbToast.cancel ();
-                fbToast = null;
-            }
+            super (x, 0, 1, 1, s, logo, s, logo);
         }
     }
 }

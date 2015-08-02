@@ -60,14 +60,13 @@ public class HostNameText extends LinearLayout
     private KeyListener normalKeyListener;
     private long hideUptimeMillis = Long.MAX_VALUE;
     private MySession session;
-    private SshClient sshclient;
 
     public HostNameText (MySession ms)
     {
         super (ms.getSshClient ());
 
         session   = ms;
-        sshclient = ms.getSshClient ();
+        SshClient sshclient = ms.getSshClient ();
 
         okbut = new Button (ms.getSshClient ());
         okbut.setText ("OK");
