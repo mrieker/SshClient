@@ -495,6 +495,11 @@ public class SshClient extends Activity {
                 networkInterfacesView.show ();
             }
         });
+        AddXMenuItem (xmll, "reconnect", new Runnable () {
+            public void run () {
+                ReconnectConfirm (currentsession);
+            }
+        });
         AddXMenuItem (xmll, "saved logins", new Runnable () {
             public void run () {
                 savedlogins.ShowSavedLoginsMenu ();
@@ -675,6 +680,28 @@ public class SshClient extends Activity {
             public void onClick (DialogInterface dialog, int whichButton)
             {
                 ShutdownEverything ();
+            }
+        });
+        ab.setNegativeButton ("Cancel", null);
+        ab.show ();
+    }
+
+    /**
+     * Confirm reconnection of the given session.
+     */
+    private void ReconnectConfirm (final MySession ms)
+    {
+        AlertDialog.Builder ab = new AlertDialog.Builder (SshClient.this);
+        ab.setTitle ("Confirm reconnect session");
+        ab.setMessage (ms.GetSessionName ());
+        ab.setPositiveButton ("OK", new DialogInterface.OnClickListener () {
+            public void onClick (DialogInterface dialog, int whichButton)
+            {
+                // drop TCP connection and kill thread
+                ms.Disconnect ();
+
+                // restart the connection
+                ms.StartConnecting ();
             }
         });
         ab.setNegativeButton ("Cancel", null);

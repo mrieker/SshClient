@@ -29,6 +29,7 @@ import android.content.pm.ActivityInfo;
 import android.graphics.Typeface;
 import android.widget.TextView;
 
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.Enumeration;
@@ -53,7 +54,21 @@ public class NetworkInterfacesView extends TextView {
             Enumeration<NetworkInterface> nifaceit = NetworkInterface.getNetworkInterfaces ();
             while (nifaceit.hasMoreElements ()) {
                 NetworkInterface niface = nifaceit.nextElement ();
-                String name = niface.getName () + ": " + niface.getDisplayName () + "\n";
+                String name = niface.getName () + ": " + niface.getDisplayName ();
+                Class<? extends NetworkInterface> niclass = niface.getClass ();
+                try {
+                    Method ghwa = niclass.getMethod ("getHardwareAddress");
+                    byte[] hwabin = (byte[]) ghwa.invoke (niface);
+                    if (hwabin != null) {
+                        name += " hw ";
+                        for (byte hwabyte : hwabin) {
+                            if (!name.endsWith (" ")) name += ":";
+                            name += Integer.toHexString ((hwabyte & 0xFF) | 0x100).substring (1);
+                        }
+                    }
+                } catch (NoSuchMethodException nsme) {
+                }
+                name += "\n";
                 Enumeration<InetAddress> ipaddrit = niface.getInetAddresses ();
                 while (ipaddrit.hasMoreElements ()) {
                     if (name != null) {
@@ -80,16 +95,19 @@ public class NetworkInterfacesView extends TextView {
                 // it is always ok to back-button away from this page
                 return true;
             }
+
             @Override
             public void reshow ()
             {
                 show ();
             }
+
             @Override
             public String name ()
             {
                 return "networkinterfaces";
             }
+
             @Override
             public MySession session ()
             {

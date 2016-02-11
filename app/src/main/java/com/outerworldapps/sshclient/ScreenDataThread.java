@@ -218,7 +218,7 @@ public class ScreenDataThread extends Thread {
                 screenTextBuffer.ScreenMsg (
                     jsession.isConnected () ?
                             "  menu/more/shell to re-open\r\n  menu/more/disconnect or EXIT to disconnect\r\n" :
-                            "  menu/more/disconnect then reconnect to re-open\r\n"
+                            "  menu/more/reconnect to re-open\r\n"
                 );
             }
 
