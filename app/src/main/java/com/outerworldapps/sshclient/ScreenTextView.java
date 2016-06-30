@@ -41,6 +41,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -55,12 +56,12 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.EditText;
-import android.widget.HorizontalScrollView;
 
 import com.jcraft.jsch.ChannelShell;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@SuppressLint("ViewConstructor")
 public class ScreenTextView extends KeyboardableView implements SshClient.HasMainMenu {
     public static final String TAG = "SshClient";
 
@@ -93,7 +94,6 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
     private SshClient sshclient;                 // what activity we are part of
     private ShellEditText edtx;                  // holds the text display
     private STPanning panning;                   // used for scrolling based on mouse movements
-    private HorizontalScrollView vt100kb;        // non-null means we are using VT100KBView keyboard
 
     public ScreenTextView (MySession ms, ScreenTextBuffer stb)
     {
@@ -360,6 +360,7 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
         /**
          * We were invalidated via invalidate(), so draw all the text to the canvas.
          */
+        @SuppressWarnings("ConstantConditions")
         @Override
         protected void onDraw (@NonNull Canvas canvas)
         {
@@ -515,6 +516,7 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
          * renderCursor < 0: leave scrolling alone
          *             else: adjust scrolling such that cursor position is visible
          */
+        @SuppressWarnings("ConstantConditions")
         private void RenderText ()
         {
             // calculate number of characters that will fit in a single line of the
@@ -888,6 +890,7 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
          * Draw a run of special graphics characters that weren't handled by ScreenTextBuffer
          * converting them to equivalent Unicode characters.
          */
+        @SuppressWarnings("OctalInteger")
         private void DrawSpecialGraphics (Canvas canvas, int beg, int end, int x, int y, char[] twt, int twb, int twm)
         {
             do {
@@ -991,7 +994,7 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
             if (!readingkb) {
                 readingkb = true;
                 String str = s.toString ();
-                s.replace (0, str.length (), "", 0, 0);
+                super.setText ("");  // s.replace (0, str.length (), "", 0, 0) does not work on LG K8 V
                 ProcessKeyboardString (str);
                 readingkb = false;
             }

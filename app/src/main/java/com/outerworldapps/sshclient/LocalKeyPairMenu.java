@@ -25,6 +25,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -50,6 +51,7 @@ import java.io.File;
 import java.io.OutputStream;
 import java.util.TreeMap;
 
+@SuppressLint("SetTextI18n")
 public class LocalKeyPairMenu {
     public static final String TAG = "SshClient";
 
@@ -191,7 +193,9 @@ public class LocalKeyPairMenu {
                         @Override
                         public void onClick (DialogInterface dialogInterface, int i)
                         {
+                            //noinspection ResultOfMethodCallIgnored
                             publickeyfile.delete ();
+                            //noinspection ResultOfMethodCallIgnored
                             privatekeyfile.delete ();
                         }
                     });
@@ -373,7 +377,9 @@ public class LocalKeyPairMenu {
                     KeyPair kpair = KeyPair.genKeyPair (new JSch (), type, size);
                     OutputStream prvkey = sshclient.getMasterPassword ().EncryptedFileOutputStream (prvkeyfn);
                     OutputStream pubkey = sshclient.getMasterPassword ().EncryptedFileOutputStream (pubkeyfn);
-                    kpair.writePrivateKey (prvkey, pp.getBytes ("UTF-8"));
+                    byte[] ppbytes = null;
+                    if (pp.length () > 0) ppbytes = pp.getBytes ("UTF-8");
+                    kpair.writePrivateKey (prvkey, ppbytes);
                     kpair.writePublicKey  (pubkey, ident);
                     prvkey.close ();
                     pubkey.close ();
@@ -382,7 +388,9 @@ public class LocalKeyPairMenu {
                     kpair.dispose ();
                 } catch (Exception e) {
                     Log.e (TAG, "error generating keypair", e);
+                    //noinspection ResultOfMethodCallIgnored
                     new File (prvkeyfn).delete ();
+                    //noinspection ResultOfMethodCallIgnored
                     new File (pubkeyfn).delete ();
                     AlertDialog.Builder abe = new AlertDialog.Builder (sshclient);
                     abe.setTitle ("Keypair generation error");
@@ -525,7 +533,9 @@ public class LocalKeyPairMenu {
             sshclient.ErrorAlert ("Keypair name and fingerprint", ident + "\n" + kpair.getFingerPrint ());
         } catch (Exception e) {
             Log.e (TAG, "error writing keypair", e);
+            //noinspection ResultOfMethodCallIgnored
             new File (prvfnm).delete ();
+            //noinspection ResultOfMethodCallIgnored
             new File (pubfnm).delete ();
             AlertDialog.Builder abe = new AlertDialog.Builder (sshclient);
             abe.setTitle ("Keypair write error");
