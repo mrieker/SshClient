@@ -74,6 +74,7 @@ public class SshClient extends Activity {
     private HashMap<CharSequence,Runnable> allMainMenuItems = new HashMap<CharSequence,Runnable> ();
     private HelpView helpView;
     private int lastSessionNumber;
+    public  InternalLogView internalLogView;
     private JSessionService jSessionService;
     private LinkedList<BackAction> backActionStack = new LinkedList<BackAction> ();
     private LinkedList<MySession> allsessions = new LinkedList<MySession> ();
@@ -256,6 +257,7 @@ public class SshClient extends Activity {
             myhostkeyrepo         = new MyHostKeyRepo (this);
             tunnelMenu            = new TunnelMenu (this);
             networkInterfacesView = new NetworkInterfacesView (this);
+            internalLogView       = new InternalLogView (this);
         }
 
         Log.d (TAG, "app started");
@@ -468,6 +470,12 @@ public class SshClient extends Activity {
         AddXMenuItem (xmll, "HELP", new Runnable () {
             public void run () {
                 ShowHelpScreen ();
+            }
+        });
+        AddXMenuItem (xmll, "internal log", new Runnable () {
+            @Override
+            public void run () {
+                internalLogView.show ();
             }
         });
         AddXMenuItem (xmll, "known hosts", new Runnable () {

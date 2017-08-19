@@ -52,6 +52,7 @@ import android.support.annotation.NonNull;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -67,10 +68,14 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
 
     public static final int CURSOR_HALFCYCLE_MS = 512;
 
+    private final static SparseArray<String> letterkeys = LetterKeys ();
+
     private final ScreenTextBuffer screenTextBuffer;  // where we get shell screen data from
 
     private AtomicBoolean invalTextImmPend = new AtomicBoolean (false);
     private boolean ctrlkeyflag;                 // when set, next key if 0x40..0x7F gets converted to 0x00..0x1F
+    private boolean ctrlleftdown;
+    private boolean ctrlrightdown;
     private boolean frozen;                      // indicates frozen mode
     private boolean invalTextDelPend;
     private boolean selectActive;                // the 'b' key has been pressed to begin text selection
@@ -94,6 +99,38 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
     private SshClient sshclient;                 // what activity we are part of
     private ShellEditText edtx;                  // holds the text display
     private STPanning panning;                   // used for scrolling based on mouse movements
+
+    private static SparseArray<String> LetterKeys ()
+    {
+        SparseArray<String> lks = new SparseArray<> ();
+        lks.put (KeyEvent.KEYCODE_A, "A");
+        lks.put (KeyEvent.KEYCODE_B, "B");
+        lks.put (KeyEvent.KEYCODE_C, "C");
+        lks.put (KeyEvent.KEYCODE_D, "D");
+        lks.put (KeyEvent.KEYCODE_E, "E");
+        lks.put (KeyEvent.KEYCODE_F, "F");
+        lks.put (KeyEvent.KEYCODE_G, "G");
+        lks.put (KeyEvent.KEYCODE_H, "H");
+        lks.put (KeyEvent.KEYCODE_I, "I");
+        lks.put (KeyEvent.KEYCODE_J, "J");
+        lks.put (KeyEvent.KEYCODE_K, "K");
+        lks.put (KeyEvent.KEYCODE_L, "L");
+        lks.put (KeyEvent.KEYCODE_M, "M");
+        lks.put (KeyEvent.KEYCODE_N, "N");
+        lks.put (KeyEvent.KEYCODE_O, "O");
+        lks.put (KeyEvent.KEYCODE_P, "P");
+        lks.put (KeyEvent.KEYCODE_Q, "Q");
+        lks.put (KeyEvent.KEYCODE_R, "R");
+        lks.put (KeyEvent.KEYCODE_S, "S");
+        lks.put (KeyEvent.KEYCODE_T, "T");
+        lks.put (KeyEvent.KEYCODE_U, "U");
+        lks.put (KeyEvent.KEYCODE_V, "V");
+        lks.put (KeyEvent.KEYCODE_W, "W");
+        lks.put (KeyEvent.KEYCODE_X, "X");
+        lks.put (KeyEvent.KEYCODE_Y, "Y");
+        lks.put (KeyEvent.KEYCODE_Z, "Z");
+        return lks;
+    }
 
     public ScreenTextView (MySession ms, ScreenTextBuffer stb)
     {
@@ -285,7 +322,7 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
      * Holds the displayed text.
      * Also contains the normal (non-vt-100) keyboard.
      */
-    private class ShellEditText extends EditText implements TextWatcher {
+    private class ShellEditText extends EditText implements AKeycodes,TextWatcher {
         private boolean readingkb;
         private Paint bgpaint;                       // used to paint text background rectangles
         private Paint cursorPaint;                   // used to paint cursor
@@ -958,12 +995,59 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
         {
             if (ke.getAction () == KeyEvent.ACTION_DOWN) {
                 switch (ke.getKeyCode ()) {
-                    case KeyEvent.KEYCODE_ENTER: {
-                        ProcessKeyboardString ("\r");
+                    case AKEYCODE_CTRL_LEFT: {
+                        ctrlleftdown = true;
+                        return true;
+                    }
+                    case AKEYCODE_CTRL_RIGHT: {
+                        ctrlrightdown = true;
+                        return true;
+                    }
+                    case KeyEvent.KEYCODE_DPAD_DOWN: {
+                        ProcessKeyboardString ("\033[B");
+                        return true;
+                    }
+                    case KeyEvent.KEYCODE_DPAD_LEFT: {
+                        ProcessKeyboardString ("\033[D");
+                        return true;
+                    }
+                    case KeyEvent.KEYCODE_DPAD_RIGHT: {
+                        ProcessKeyboardString ("\033[C");
+                        return true;
+                    }
+                    case KeyEvent.KEYCODE_DPAD_UP: {
+                        ProcessKeyboardString ("\033[A");
                         return true;
                     }
                     case KeyEvent.KEYCODE_DEL: {
                         ProcessKeyboardString ("\177");
+                        return true;
+                    }
+                    case KeyEvent.KEYCODE_ENTER: {
+                        ProcessKeyboardString ("\r");
+                        return true;
+                    }
+                    case KeyEvent.KEYCODE_TAB: {
+                        ProcessKeyboardString ("\t");
+                        return true;
+                    }
+                }
+                if (ctrlleftdown || ctrlrightdown) {
+                    String letkey = letterkeys.get (ke.getKeyCode ());
+                    if (letkey != null) {
+                        ProcessKeyboardString (letkey);
+                        return true;
+                    }
+                }
+            }
+            if (ke.getAction () == KeyEvent.ACTION_UP) {
+                switch (ke.getKeyCode ()) {
+                    case AKEYCODE_CTRL_LEFT: {
+                        ctrlleftdown = false;
+                        return true;
+                    }
+                    case AKEYCODE_CTRL_RIGHT: {
+                        ctrlrightdown = false;
                         return true;
                     }
                 }
@@ -1147,7 +1231,9 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
     public void ProcessKeyboardString (String str)
     {
         for (char chr : str.toCharArray ()) {
-            if (ctrlkeyflag && (chr >= 0x40) && (chr <= 0x7F)) chr = (char) (chr & 0x1F);
+            if ((ctrlkeyflag || ctrlleftdown || ctrlrightdown) && (chr >= 0x40) && (chr <= 0x7F)) {
+                chr = (char) (chr & 0x1F);
+            }
             ctrlkeyflag = false;
             if (frozen) {
                 ProcessSelectionChar (chr);
