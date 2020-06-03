@@ -25,6 +25,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Color;
@@ -48,6 +49,7 @@ import java.util.TreeMap;
  * A session screen consists of a box to enter username@hostname[:portnumber] in
  * and a box that displays screen data from the host.
  */
+@SuppressLint({ "SetTextI18n", "ViewConstructor" })
 public class MySession extends LinearLayout implements SshClient.HasMainMenu {
     public static final String TAG = "SshClient";
     public static final int CONN_TIMEOUT_MS = 30000;
@@ -149,7 +151,7 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
 
     public String GetSessionName ()
     {
-        return Integer.toString (sessionNumber) + " " + hostnametext.getText ().toString ();
+        return sessionNumber + " " + hostnametext.getText ().toString ();
     }
 
     /**
@@ -227,15 +229,17 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
         AlertDialog.Builder ab = new AlertDialog.Builder (sshclient);
         ab.setTitle ("Clipboard <-> File");
 
+        final ClipboardManager cbm = (ClipboardManager) sshclient.getSystemService (Activity.CLIPBOARD_SERVICE);
+
         Button b1 = sshclient.MyButton ();
-        Button b2 = sshclient.MyButton ();
+        Button b2 = (cbm == null) ? null : sshclient.MyButton ();
         Button b3 = sshclient.MyButton ();
-        Button b4 = sshclient.MyButton ();
+        Button b4 = (cbm == null) ? null : sshclient.MyButton ();
 
         b1.setText ("Internal clipboard -> File");
-        b2.setText ("External clipboard -> File");
+        if (cbm != null) b2.setText ("External clipboard -> File");
         b3.setText ("File -> Internal clipboard");
-        b4.setText ("File -> External clipboard");
+        if (cbm != null) b4.setText ("File -> External clipboard");
 
         // internal clipboard -> file
         b1.setOnClickListener (new OnClickListener () {
@@ -251,14 +255,14 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
         });
 
         // external clipboard -> file
-        b2.setOnClickListener (new OnClickListener () {
+        if (cbm != null) b2.setOnClickListener (new OnClickListener () {
             @Override
             public void onClick (View view)
             {
                 currentAlertDialog.dismiss ();
                 if (fileexplorerview != null) {
                     SetScreenMode (MSM_FILES);
-                    ClipboardManager cbm = (ClipboardManager) sshclient.getSystemService (Activity.CLIPBOARD_SERVICE);
+
                     fileexplorerview.pasteClipToFile ("external clipboard", cbm.getText ().toString ().getBytes ());
                 }
             }
@@ -281,7 +285,7 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
         });
 
         // file -> external clipboard
-        b4.setOnClickListener (new OnClickListener () {
+        if (cbm != null) b4.setOnClickListener (new OnClickListener () {
             @Override
             public void onClick (View view)
             {
@@ -290,7 +294,6 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
                     SetScreenMode (MSM_FILES);
                     byte[] clip = fileexplorerview.copyClipFromFile ("external clipboard");
                     if (clip != null) {
-                        ClipboardManager cbm = (ClipboardManager) sshclient.getSystemService (Activity.CLIPBOARD_SERVICE);
                         cbm.setText (new String (clip));
                     }
                 }
@@ -300,9 +303,9 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
         LinearLayout ll = new LinearLayout (sshclient);
         ll.setOrientation (LinearLayout.VERTICAL);
         ll.addView (b1);
-        ll.addView (b2);
+        if (cbm != null) ll.addView (b2);
         ll.addView (b3);
-        ll.addView (b4);
+        if (cbm != null) ll.addView (b4);
 
         ab.setView (ll);
         ab.setNegativeButton ("Cancel", null);
@@ -320,7 +323,9 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
 
                 // if we aren't connected yet, output message to shell screen
                 // saying what mode it will go in when it connects
-                if (screendatathread == null) ScreenMsg (modeNames[screenMode] + " mode selected\r\n");
+                if (screendatathread == null) {
+                    ScreenMsg ("\r\n" + modeNames[screenMode] + " mode selected - connect to remote host\r\n");
+                }
 
                 // if we are connected, rebuild our view based on new shell/filetransfer/tunnel/vnccli mode
                 // also save new mode in case we detach and re-attach.
@@ -443,8 +448,7 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
                 jschuserinfo.password     = null;       // no password has been entered by user
                 jschuserinfo.savePassword = false;      // user has not checked 'save password' checkbox
                 if (savedlogin != null) {
-                    String savedpw = savedlogin.getPassword ();
-                    jschuserinfo.dbpassword = savedpw;  // this password is available in database
+                    jschuserinfo.dbpassword = savedlogin.getPassword ();  // this password is available in database
                 }
                 jses.setPassword ("");
                 jses.setUserInfo (jschuserinfo);
@@ -487,6 +491,7 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
              */
             screendatahandler.obtainMessage (ScreenDataHandler.SELKEYPAIR, matches).sendToTarget ();
             String answer;
+            //noinspection SynchronizationOnLocalVariableOrMethodParameter
             synchronized (matches) {
                 while (!matches.containsKey ("<<answer>>")) {
                     matches.wait ();
@@ -703,6 +708,7 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
         /*
          * Get restore state if any.
          */
+        @SuppressWarnings("unchecked")
         HashMap<String,Object> festate = (HashMap<String,Object>) screendatathread.detstate.get ("festate");
 
         /*

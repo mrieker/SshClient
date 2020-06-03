@@ -26,7 +26,6 @@ package com.outerworldapps.sshclient;
 
 
 import android.annotation.SuppressLint;
-import android.content.pm.ActivityInfo;
 import android.graphics.Typeface;
 import android.widget.ScrollView;
 import android.widget.TextView;

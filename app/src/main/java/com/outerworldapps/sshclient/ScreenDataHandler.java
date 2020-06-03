@@ -210,6 +210,7 @@ public class ScreenDataHandler extends Handler {
 
             // select a keypair from the given list
             case SELKEYPAIR: {
+                @SuppressWarnings("unchecked")
                 final TreeMap<String,String> matches = (TreeMap<String,String>) msg.obj;
 
                 // set up basic alert dialog box
@@ -289,6 +290,7 @@ public class ScreenDataHandler extends Handler {
      */
     private static void ClickedPasswordDialogOKButton (String[] args, TextView input, CheckBox savecb)
     {
+        //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (args) {
             args[2] = "OK";
             args[3] = input.getText ().toString ();
@@ -304,6 +306,7 @@ public class ScreenDataHandler extends Handler {
      */
     private static void ClickedPasswordDialogCancelButton (String[] args)
     {
+        //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (args) {
             args[2] = "Cancel";
             args[3] = null;
@@ -314,6 +317,7 @@ public class ScreenDataHandler extends Handler {
 
     private static void ClickedYesNoDialogNoButton (String[] args)
     {
+        //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (args) {
             args[1] = "No";
             args.notify ();
@@ -322,6 +326,7 @@ public class ScreenDataHandler extends Handler {
 
     private static void SelectedKeyPair (TreeMap<String,String> matches, String selection)
     {
+        //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (matches) {
             matches.put ("<<answer>>", selection);
             matches.notifyAll ();

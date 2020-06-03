@@ -40,6 +40,7 @@ import android.util.Log;
 
 import java.io.OutputStreamWriter;
 
+@SuppressWarnings("unused")
 public class ScreenTextBuffer {
     public static final String TAG = "SshClient";
 
@@ -79,6 +80,7 @@ public class ScreenTextBuffer {
     public static final short TWA_FGCLR = 128 * 7;
     public static final short TWA_SPCGR = 1024;
 
+    @SuppressWarnings("PointlessArithmeticExpression")
     public static final short RESET_ATTRS = (TWA_FGCLR & -TWA_FGCLR) * C_WHITE + (TWA_BGCLR & -TWA_BGCLR) * C_BLACK;
 
     private static final int ESCSEQMAX = 32;
@@ -138,7 +140,7 @@ public class ScreenTextBuffer {
         } catch (Exception e) {
             Log.w (TAG, "transmit error", e);
             ScreenMsg ("\r\ntransmit error: " + SshClient.GetExMsg (e));
-            try { out.close (); } catch (Exception ee) { }
+            try { out.close (); } catch (Exception ignored) { }
             screendatathread.output = null;
             return false;
         }
@@ -294,8 +296,7 @@ public class ScreenTextBuffer {
         if (lineno > 0) return theWholeUsed;
         i += charno;
         if (i < 0) return 0;
-        if (i > theWholeUsed) return theWholeUsed;
-        return i;
+        return Math.min (i, theWholeUsed);
     }
 
     /**
@@ -460,6 +461,7 @@ public class ScreenTextBuffer {
     /**
      * Process an incoming control or printable character not part of an escape sequence.
      */
+    @SuppressWarnings("OctalInteger")
     private void ControlOrPrintable (char ch)
     {
         if (ch < 32) {
@@ -469,7 +471,7 @@ public class ScreenTextBuffer {
 
                 // bell
                 case 7: {
-                    SshClient.MakeBeepSound ();
+                    session.getSshClient ().MakeBeepSound ();
                     break;
                 }
 
@@ -899,11 +901,23 @@ public class ScreenTextBuffer {
                 case 'l': {
                     boolean set = (termchr == 'h');
                     for (String s : parms) {
-                             if (s.equals ("20")) linefeedmode  = set;
-                        else if (s.equals ("?1")) cursorappmode = set;
-                        else if (s.equals ("?6")) originmode    = set;
-                        else if (s.equals ("?7")) hardwrapmode  = set;
-                        else Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
+                        switch (s) {
+                            case "20":
+                                linefeedmode = set;
+                                break;
+                            case "?1":
+                                cursorappmode = set;
+                                break;
+                            case "?6":
+                                originmode = set;
+                                break;
+                            case "?7":
+                                hardwrapmode = set;
+                                break;
+                            default:
+                                Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
+                                break;
+                        }
                     }
                     break;
                 }

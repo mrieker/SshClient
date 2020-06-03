@@ -26,6 +26,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.DialogInterface;
@@ -64,6 +65,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.TreeMap;
 
+@SuppressLint({ "SetTextI18n", "ViewConstructor" })
 public class FileExplorerView extends LinearLayout {
     public final static String TAG = "SshClient";
 
@@ -123,7 +125,7 @@ public class FileExplorerView extends LinearLayout {
         }
     }
 
-    public HashMap<String,Object> savestate = new HashMap<String,Object> ();
+    public HashMap<String,Object> savestate = new HashMap<> ();
 
     private AlertDialog currentMenuDialog;
     private AllSelectedFiles allSelectedFiles;                  // list of files that are currently selected
@@ -137,8 +139,8 @@ public class FileExplorerView extends LinearLayout {
     private LinearLayout funcButtonRowLL;                       // currently displayed function buttons
     private LinearLayout mainScrollerLL;                        // holds everything except function buttons
     private LinkedList<FileExplorerNav> fileExplorerNavList;    // list of all navigators we can switch to
-    private LinkedList<Runnable> noXfersQueue = new LinkedList<Runnable> ();
-    private LinkedList<PDiagdFileTasks.CopyMoveDelTask> pdiagdFileTasks = new LinkedList<PDiagdFileTasks.CopyMoveDelTask> ();
+    private LinkedList<Runnable> noXfersQueue = new LinkedList<> ();
+    private LinkedList<PDiagdFileTasks.CopyMoveDelTask> pdiagdFileTasks = new LinkedList<> ();
     private ScrollView mainScrollerSV;
     private SshClient sshclient;                                // app context
     private TextView leftSpacer;                                // spacing in function buttons
@@ -150,7 +152,7 @@ public class FileExplorerView extends LinearLayout {
         super (sc);
         sshclient = sc;
 
-        fileExplorerNavList = new LinkedList<FileExplorerNav> ();
+        fileExplorerNavList = new LinkedList<> ();
         allSelectedFiles    = new AllSelectedFiles ();
 
         setOrientation (LinearLayout.VERTICAL);
@@ -383,7 +385,7 @@ public class FileExplorerView extends LinearLayout {
         try {
             InputStream is = file.getInputStream ();
             try {
-                LinkedList<byte[]> fullbufs = new LinkedList<byte[]> ();
+                LinkedList<byte[]> fullbufs = new LinkedList<> ();
                 byte[] buf = new byte[4096];
                 int ofs;
                 while (true) {
@@ -498,13 +500,11 @@ public class FileExplorerView extends LinearLayout {
         return hit;
     }
 
-    private Selected selectFile (IFile file, FileExplorerNav nav)
+    private void selectFile (IFile file, FileExplorerNav nav)
     {
         // add this file to list of selected files and highlight it
         Selected selent = new Selected (file, nav);
         allSelectedFiles.addLast (selent);
-
-        return selent;
     }
 
     /**
@@ -617,7 +617,7 @@ public class FileExplorerView extends LinearLayout {
                                 flatComLen = i;
                             }
                         }
-                        comStr = flatComStr.substring (0, flatComLen);
+                        if (flatComStr != null) comStr = flatComStr.substring (0, flatComLen);
                     }
                     nameBox.setText (comStr.substring (comStr.lastIndexOf ('/') + 1));
                 }
@@ -708,6 +708,8 @@ public class FileExplorerView extends LinearLayout {
 
     private static void buildCopyMoveExample (SpannableStringBuilder ssb, Selected sel)
     {
+        if (sel == null) return;
+
         // get both absolute paths without '/' on end
         // because the output wouldn't be correctly
         // marked as a directory as it doesn't exist
@@ -830,7 +832,7 @@ public class FileExplorerView extends LinearLayout {
                             return;
                         }
                     } finally {
-                        try { is.close (); } catch (IOException ioe) { }
+                        try { is.close (); } catch (IOException ignored) { }
                     }
                 } catch (IOException ioe) {
                     Log.w (TAG, "error getting mime type of " + file.getAbsolutePath (), ioe);
@@ -886,7 +888,7 @@ public class FileExplorerView extends LinearLayout {
                 // set up to copy remote file to the temp file in the background
                 // .. then call finished() to open it
                 sel.outmap = file;
-                LinkedList<AsyncFileTasks.Selected> sels = new LinkedList<AsyncFileTasks.Selected> ();
+                LinkedList<AsyncFileTasks.Selected> sels = new LinkedList<> ();
                 sels.addLast (sel);
                 new DetachableCopyMove (
                         fev,    // current GUI
@@ -1066,7 +1068,7 @@ public class FileExplorerView extends LinearLayout {
      */
     public void selectFiles (Collection<IFile> files, FileExplorerNav nav)
     {
-        ArrayList<Selected> selents = new ArrayList<Selected> (files.size());
+        ArrayList<Selected> selents = new ArrayList<> (files.size());
         int i = 0;
         for (IFile file : files) {
             selents.add (i ++, new Selected (file, nav));
@@ -1321,9 +1323,9 @@ public class FileExplorerView extends LinearLayout {
      * Indicate the start or finish of an asynchronous transfer operation.
      * We only want to let one run at a time otherwise the SSH connection tends to jam up.
      */
-    public int incXfersRunning (int inc)
+    public void incXfersRunning (int inc)
     {
-        int n = (xfersRunning += inc);
+        xfersRunning += inc;
         if (xfersRunning < 0) {
             throw new RuntimeException ("xfersRunning is negative");
         }
@@ -1332,7 +1334,6 @@ public class FileExplorerView extends LinearLayout {
             Runnable r = noXfersQueue.removeFirst ();
             r.run ();
         }
-        return n;
     }
 
     /**
@@ -1593,7 +1594,7 @@ public class FileExplorerView extends LinearLayout {
     private class AllSelectedFiles implements Collection<Selected> {
         private int oldNLines;
         private String lastAdded;
-        private TreeMap<String,Selected> list = new TreeMap<String,Selected> ();
+        private TreeMap<String,Selected> list = new TreeMap<> ();
 
         // save key of last one added to list
         public void addLast (Selected sel)
@@ -1633,7 +1634,7 @@ public class FileExplorerView extends LinearLayout {
             throw new UnsupportedOperationException ();
         }
 
-        @Override public boolean addAll (Collection<? extends Selected> collection)
+        @Override public boolean addAll (@NonNull Collection<? extends Selected> collection)
         {
             throw new UnsupportedOperationException ();
         }
@@ -1650,7 +1651,8 @@ public class FileExplorerView extends LinearLayout {
 
         @Override public boolean contains (Object object)
         {
-            return list.values ().contains (object);
+            //noinspection SuspiciousMethodCalls
+            return list.containsValue (object);
         }
 
         @Override public boolean containsAll (@NonNull Collection<?> collection)
@@ -1691,7 +1693,8 @@ public class FileExplorerView extends LinearLayout {
         @Override
         public @NonNull <T> T[] toArray (@NonNull T[] array)
         {
-            return list.values ().toArray (array);
+            //noinspection RedundantCast
+            return (T[]) list.values ().toArray (array);
         }
 
         @Override

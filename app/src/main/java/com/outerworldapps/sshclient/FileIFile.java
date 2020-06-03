@@ -203,7 +203,7 @@ public class FileIFile extends IFile {
             }
         } finally {
             p.destroy ();
-            try { p.waitFor (); } catch (InterruptedException ie) { }
+            try { p.waitFor (); } catch (InterruptedException ignored) { }
         }
     }
 
@@ -251,7 +251,7 @@ public class FileIFile extends IFile {
         public MyRAOutputStream (File f, int osmode) throws IOException
         {
             switch (osmode) {
-                case OSMODE_APPEND: break;
+                case OSMODE_APPEND:
                 case OSMODE_CREATE: break;
                 default: throw new IllegalArgumentException ("bad osmode " + osmode);
             }
@@ -266,7 +266,7 @@ public class FileIFile extends IFile {
 
         // OutputStream
         public void close () throws IOException { raFile.close (); }
-        public void flush () throws IOException { }
+        public void flush () { }
         public void write (@NonNull byte[] buffer) throws IOException { raFile.write (buffer); }
         public void write (@NonNull byte[] buffer, int offset, int count) throws IOException { raFile.write (buffer, offset, count); }
         public void write (int oneByte) throws IOException { raFile.write (oneByte); }

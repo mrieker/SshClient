@@ -192,7 +192,7 @@ public abstract class KeybdView extends LinearLayout {
     protected class Lockable {
         public Object lastSentDownCode;
         public int mode;
-        public LinkedList<KeyButton> buttons = new LinkedList<KeyButton> ();
+        public LinkedList<KeyButton> buttons = new LinkedList<> ();
 
         /**
          * Transient key (non-lockable key) was just released.
@@ -280,15 +280,11 @@ public abstract class KeybdView extends LinearLayout {
         @Override  // TransientButton
         public void OnTouchEvent (int action)
         {
-            switch (action) {
-                case MotionEvent.ACTION_DOWN: {
-
-                    // step through to next mode and update color on all like buttons
-                    // causes a down-button or up-button code to be sent on transition
-                    lockable.mode = (lockable.mode + 1) % 3;
-                    lockable.SetColors (GetCode ());
-                    break;
-                }
+            if (action == MotionEvent.ACTION_DOWN) {
+                // step through to next mode and update color on all like buttons
+                // causes a down-button or up-button code to be sent on transition
+                lockable.mode = (lockable.mode + 1) % 3;
+                lockable.SetColors (GetCode ());
             }
         }
     }
@@ -473,6 +469,7 @@ public abstract class KeybdView extends LinearLayout {
      * These are the keys that have upper/lower case characters, eg, ! 1
      */
     protected class LcUcButton extends TransientButton {
+        @SuppressWarnings("FieldCanBeLocal")
         private Paint myPaint;
         private String clstr;  // shift off; capslock on
         private String custr;  // shift on; capslock on
@@ -701,6 +698,7 @@ public abstract class KeybdView extends LinearLayout {
         public KeyButton sameTextSizeAs;
 
         private boolean needPaddings;
+        @SuppressWarnings({ "FieldCanBeLocal", "unused" })
         private boolean noOutline;
         private int keyDownScrollX;
         private long delayedDownQueued = Long.MAX_VALUE;
@@ -708,7 +706,7 @@ public abstract class KeybdView extends LinearLayout {
         private float lastTextSize;
         private int buttonColor;
         private int lastDrawHeight, lastDrawWidth;
-        private int textHeight, textWidth;
+        private int textHeight;
         private Paint bgPaint;
         private Paint myPaint;
         private Rect bounds = new Rect ();
@@ -885,7 +883,7 @@ public abstract class KeybdView extends LinearLayout {
                 myPaddingTop   += MARGIN;
                 myPaddingBottom = MARGIN + h - 1 - myPaddingBottom;
 
-                if (false && "m".equals (GetLogo ())) {
+                /*if (false && "m".equals (GetLogo ())) {
                     Log.d (TAG, "onDraw*:  width=" + getWidth  () + " " + myPaddingLeft + " " + myPaddingRight);
                     Log.d (TAG, "onDraw*: height=" + getHeight () + " " + myPaddingTop  + " " + myPaddingBottom);
                     for (int y = 0; y < h; y ++) {
@@ -896,14 +894,14 @@ public abstract class KeybdView extends LinearLayout {
                         }
                         Log.d (TAG, "onDraw*: " + y + ": " + sb.toString ());
                     }
-                }
+                }*/
             }
 
             // draw blank button (cuz we did setText (" "))
             super.onDraw (canvas);
 
             // draw padding box outline on button
-            if (false && !noOutline) {
+            /*if (false && !noOutline) {
                 Paint p = new Paint ();
                 p.setStrokeWidth (5);
                 p.setColor (Color.CYAN);
@@ -916,7 +914,7 @@ public abstract class KeybdView extends LinearLayout {
                 int bh = getHeight () - myPaddingBottom;
                 canvas.drawLine (bw, bh, bw - 50, bh, p);
                 canvas.drawLine (bw, bh, bw, bh - 50, p);
-            }
+            }*/
 
             // measure the size of the button
             int buttonWidth  = getWidth  ();
@@ -955,7 +953,7 @@ public abstract class KeybdView extends LinearLayout {
                         lastDrawHeight = drawHeight;
 
                         // measure the size of the string if we drew it with the current text size
-                        textWidth  = 0;
+                        int textWidth = 0;
                         textHeight = 0;
                         for (String s : logoLines) {
                             // make sure we don't blow a single '.' up into a big blob

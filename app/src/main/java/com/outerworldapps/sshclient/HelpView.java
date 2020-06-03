@@ -27,12 +27,14 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Message;
 import android.webkit.WebView;
 
+@SuppressLint("ViewConstructor")
 public class HelpView extends WebView {
     public static final String TAG = "SshClient";
 
@@ -40,6 +42,7 @@ public class HelpView extends WebView {
 
     private SshClient sshclient;
 
+    @SuppressLint({ "SetJavaScriptEnabled", "AddJavascriptInterface" })
     public HelpView (SshClient sc)
     {
         super (sc);
@@ -49,6 +52,7 @@ public class HelpView extends WebView {
 
         getSettings ().setBuiltInZoomControls (true);
         getSettings ().setJavaScriptEnabled (true);
+        getSettings ().setSupportZoom (true);
         addJavascriptInterface (new JavaScriptObject (), "hvjso");
 
         loadHtmlAsset ("help.html");
@@ -68,6 +72,7 @@ public class HelpView extends WebView {
     private class JavaScriptObject {
 
         @SuppressWarnings ("unused")
+        @android.webkit.JavascriptInterface
         public String getVersionName ()
         {
             try {
@@ -79,6 +84,7 @@ public class HelpView extends WebView {
         }
 
         @SuppressWarnings ("unused")
+        @android.webkit.JavascriptInterface
         public int getVersionCode ()
         {
             try {
@@ -90,15 +96,52 @@ public class HelpView extends WebView {
         }
 
         @SuppressWarnings ("unused")
+        @android.webkit.JavascriptInterface
         public String getJSchVersion ()
         {
             return com.jcraft.jsch.JSch.VERSION;
         }
 
         @SuppressWarnings ("unused")
+        @android.webkit.JavascriptInterface
         public void backButton ()
         {
             wvjsHandler.obtainMessage (WVJSHandler.BACKBUTT, HelpView.this).sendToTarget ();
+        }
+
+        @SuppressWarnings ("unused")
+        @android.webkit.JavascriptInterface
+        public String getGithubLink ()
+        {
+            String fullhash = BuildConfig.GitHash;
+            String abbrhash = fullhash.substring (0, 7);
+            String status = BuildConfig.GitStatus;
+            String[] lines = status.split ("\n");
+            for (String line : lines) {
+                line = line.trim ();
+                if (line.startsWith ("On branch ")) {
+                    if (line.equals ("On branch github")) {
+                        String link = "https://github.com/mrieker/SshClient/commit/" + fullhash;
+                        return "<A HREF=\"" + link + "\">" + abbrhash + "</A>";
+                    }
+                    break;
+                }
+            }
+            return abbrhash;
+        }
+
+        @SuppressWarnings ("unused")
+        @android.webkit.JavascriptInterface
+        public boolean getGitDirtyFlag ()
+        {
+            String status = BuildConfig.GitStatus;
+            String[] lines = status.split ("\n");
+            for (String line : lines) {
+                if (line.contains ("modified:") && !line.contains ("app.iml")) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
@@ -112,12 +155,10 @@ public class HelpView extends WebView {
         @Override
         public void handleMessage (Message m)
         {
-            switch (m.what) {
-                case BACKBUTT: {
-                    ((HelpView) m.obj).goBack ();
-                    break;
-                }
-                default: throw new RuntimeException ();
+            if (m.what == BACKBUTT) {
+                ((HelpView) m.obj).goBack ();
+            } else {
+                throw new RuntimeException ();
             }
         }
     }

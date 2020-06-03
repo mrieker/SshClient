@@ -25,6 +25,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
@@ -44,6 +45,7 @@ import android.widget.TextView;
 
 import java.util.TreeMap;
 
+@SuppressLint("SetTextI18n")
 public class Settings {
     public static final String TAG = "SshClient";
 
@@ -58,6 +60,7 @@ public class Settings {
     public _Bool show_eols  = new _Bool ("showEOLs",   "Show EOL markers",        false);
     public _Bool vt100_kbd  = new _Bool ("vt100KB",    "VT-100 keyboard (shell)", false);
     public _Bool wrap_lines = new _Bool ("wrapLines",  "Wrap long lines",         true);
+    public _Bool dont_beep  = new _Bool ("dontBeep",   "Don't make beep sound",   false);
 
     public _FontSize font_size = new _FontSize ("fontSize", "Font size", 20, TEXT_SIZE_MIN, TEXT_SIZE_MAX);
     public _MaxChars max_chars = new _MaxChars ("maxChars", "Max total chars", 65536, 64, 1024*1024);
@@ -131,6 +134,7 @@ public class Settings {
     /**
      * Construct and display menu for editing the values.
      */
+    @SuppressLint("SetTextI18n")
     public void ShowMenu ()
     {
         // put settings in a vertical layout
@@ -138,7 +142,7 @@ public class Settings {
         llv.setOrientation (LinearLayout.VERTICAL);
 
         // put all the values and their descriptions in a vertical list
-        TreeMap<String,_Value> sortedByLabel = new TreeMap<String,_Value> ();
+        TreeMap<String,_Value> sortedByLabel = new TreeMap<> ();
         for (_Value v : values.values ()) sortedByLabel.put (v.label, v);
         for (_Value v : sortedByLabel.values ()) {
             TextView lbl = new TextView (sshclient);
@@ -190,9 +194,6 @@ public class Settings {
         // wrap them in a scroll view in case they are too long for screen
         ScrollView sv = new ScrollView (sshclient);
         sv.addView (llv);
-
-        // display the menu always in portrait orientation
-        sshclient.setRequestedOrientation (ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         sshclient.setContentView (sv);
 
         // set up method to be called if this screen is back-buttoned to
@@ -258,7 +259,7 @@ public class Settings {
         {
             name = n;
             label = l;
-            if (values == null) values = new TreeMap<String,_Value> ();
+            if (values == null) values = new TreeMap<> ();
             values.put (name, this);
         }
 
@@ -354,6 +355,7 @@ public class Settings {
             return value;
         }
 
+        @SuppressLint("SetTextI18n")
         @Override
         public View GetView ()
         {
@@ -413,6 +415,7 @@ public class Settings {
     }
 
     // integer settings
+    @SuppressWarnings("unused")
     public class _Int extends _Value implements View.OnFocusChangeListener {
         private EditText txt;
         private int value, min, max;
@@ -436,6 +439,7 @@ public class Settings {
             return Integer.toString (value);
         }
 
+        @SuppressWarnings("unused")
         public int GetValue ()
         {
             return value;
@@ -491,7 +495,6 @@ public class Settings {
 
     // max chars setting
     public class _MaxChars extends _Value {
-        private EditText txt;
         private int value, temp, min, max;
 
         public _MaxChars (String name, String label, int value, int min, int max)
@@ -611,6 +614,7 @@ public class Settings {
             return keys[value];
         }
 
+        @SuppressWarnings("unused")
         public void SetValue (int val)
         {
             value = val;

@@ -99,13 +99,13 @@ public abstract class KeyboardableView extends LinearLayout implements View.OnFo
             if (focus) {
                 // turn off android keyboard
                 InputMethodManager imm = (InputMethodManager) sshclient.getSystemService (Context.INPUT_METHOD_SERVICE);
-                imm.hideSoftInputFromWindow (v.getWindowToken (), 0);
+                if (imm != null) imm.hideSoftInputFromWindow (v.getWindowToken (), 0);
             }
         } else {
             if (focus) {
                 // turn on android keyboard
                 InputMethodManager imm = (InputMethodManager) sshclient.getSystemService (Context.INPUT_METHOD_SERVICE);
-                imm.showSoftInput (v, 0);
+                if (imm != null) imm.showSoftInput (v, 0);
             }
         }
     }

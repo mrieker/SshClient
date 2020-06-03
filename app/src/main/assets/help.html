@@ -2,7 +2,9 @@
     <BODY>
         <A NAME="TOP" />
         <A NAME="HELP" />
-        <H2>SshClient, version <SCRIPT LANGUAGE=JAVASCRIPT>document.write (hvjso.getVersionName ())</SCRIPT></H2>
+        <H2>SshClient, version <SCRIPT LANGUAGE=JAVASCRIPT>document.write (hvjso.getVersionName () +
+                ' [' + hvjso.getGithubLink () + (hvjso.getGitDirtyFlag () ? ' (dirty)' : '') +
+                ']')</SCRIPT></H2>
         <H3><A HREF="http://www.outerworldapps.com">Outer World Apps</A></H3>
         <P>A basic SSH Client that can be used to access remote computers that are accessible via SSH.  Unlike some
             other Android SSH Clients, this one only requires internet access permission to make SSH connections and

@@ -246,7 +246,7 @@ public class MyZipFileIFile extends IFile {
         Collection<ZipEntry> collection = zipFile.entries ();
 
         // make array of only first-level entries under this one
-        ArrayList<IFile> array = new ArrayList<IFile> (collection.size ());
+        ArrayList<IFile> array = new ArrayList<> (collection.size ());
         int filterLen = filter.length ();
         for (ZipEntry ze : collection) {
 

@@ -24,6 +24,7 @@
 
 package com.outerworldapps.sshclient;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -43,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Formatter;
 
+@SuppressLint("SetTextI18n")
 public class PDiagdFileTasks {
     public final static String TAG = "SshClient";
 
@@ -325,7 +327,7 @@ public class PDiagdFileTasks {
          */
         public void setSelecteds (Collection<? extends AsyncFileTasks.Selected> sels)
         {
-            selecteds = new ArrayList<AsyncFileTasks.Selected> (sels.size());
+            selecteds = new ArrayList<> (sels.size());
             int i = 0;
             for (AsyncFileTasks.Selected sel : sels) {
                 AsyncFileTasks.Selected selcopy = new AsyncFileTasks.Selected ();

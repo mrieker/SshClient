@@ -59,7 +59,7 @@ public class SshIFile extends IFile {
 
     private static AtomicLong lastprobe = new AtomicLong (0);
     private static CleanupThread cleanupThread;
-    private static final HashMap<Session,LinkedList<ChanEnt>> channelPool = new HashMap<Session,LinkedList<ChanEnt>> ();
+    private static final HashMap<Session,LinkedList<ChanEnt>> channelPool = new HashMap<> ();
 
     private GidUid giduid;         // holds the gid/uid of the user@host:port connected to
     private Session session;       // TCP connection that is logged in
@@ -340,7 +340,7 @@ public class SshIFile extends IFile {
     }
 
     private class ListFilesSelector implements ChannelSftp.LsEntrySelector {
-        public LinkedList<IFile> fileList = new LinkedList<IFile> ();
+        public LinkedList<IFile> fileList = new LinkedList<> ();
         @Override
         public int select (ChannelSftp.LsEntry entry)
         {
@@ -448,6 +448,7 @@ public class SshIFile extends IFile {
         }
     }
 
+    @SuppressWarnings({ "OctalInteger", "PointlessArithmeticExpression" })
     private boolean canReadOrWrite (ChanEnt chanEnt, int rwx) throws IOException
     {
         SftpATTRS stat = getStat (chanEnt);
@@ -563,7 +564,7 @@ public class SshIFile extends IFile {
         try {
             try {
                 OutputStream os = chanEnt.chan.put (tmpname);
-                try { os.close (); } catch (IOException ioe) { }
+                try { os.close (); } catch (IOException ignored) { }
                 SftpATTRS at = chanEnt.chan.stat (tmpname);
                 GidUid giduid = new GidUid ();
                 giduid.gid = at.getGId ();
@@ -571,7 +572,7 @@ public class SshIFile extends IFile {
                 Log.d (TAG, "got gid=" + giduid.gid + " uid=" + giduid.uid + " via probe for " + key);
                 return giduid;
             } finally {
-                try { chanEnt.chan.rm (tmpname); } catch (Exception e) { }
+                try { chanEnt.chan.rm (tmpname); } catch (Exception ignored) { }
             }
         } catch (SftpException se) {
             Log.d (TAG, "probe() probe exception", se);
@@ -650,6 +651,7 @@ public class SshIFile extends IFile {
         public void run ()
         {
             try {
+                //noinspection InfiniteLoopStatement
                 while (true) {
                     Thread.sleep (1000, 0);
                     synchronized (channelPool) {
@@ -685,7 +687,7 @@ public class SshIFile extends IFile {
         private long markpos;
         private long position;
 
-        public SshRAIStream (ChanEnt ce) throws IOException, SftpException
+        public SshRAIStream (ChanEnt ce) throws SftpException
         {
             chanEnt  = ce;
             wrapped  = ce.chan.get (abspath);
@@ -732,7 +734,7 @@ public class SshIFile extends IFile {
             }
         }
 
-        public long tell () throws IOException
+        public long tell ()
         {
             return position;
         }
@@ -772,12 +774,12 @@ public class SshIFile extends IFile {
     private class SshRAOStream extends RAOutputStream {
         private byte[] bbuf = new byte[1];
         private ChanEnt chanEnt;
-        private int chmode;
         private OutputStream wrapped;
         private long position;
 
-        public SshRAOStream (ChanEnt ce, int osmode) throws IOException, SftpException
+        public SshRAOStream (ChanEnt ce, int osmode) throws SftpException
         {
+            int chmode;
             switch (osmode) {
                 case OSMODE_APPEND: chmode = ChannelSftp.APPEND; break;
                 case OSMODE_CREATE: chmode = ChannelSftp.OVERWRITE; break;
@@ -829,7 +831,7 @@ public class SshIFile extends IFile {
             }
         }
 
-        public long tell () throws IOException
+        public long tell ()
         {
             return position;
         }

@@ -66,7 +66,7 @@ public abstract class PanAndZoom implements ScaleGestureDetector.OnScaleGestureL
 	/**
 	 * Callback for mouse events on the image.
 	 */
-	public boolean OnTouchEvent (MotionEvent event)
+	public void OnTouchEvent (MotionEvent event)
 	{
 		/*
 		 * Maybe scaling is being performed.
@@ -79,7 +79,7 @@ public abstract class PanAndZoom implements ScaleGestureDetector.OnScaleGestureL
 				// block panning for a little time after done scaling
 				// to eliminate spurious jumps at end of scaling
 				blockPanUntil  = System.currentTimeMillis () + panningblocktime;
-				return true;
+				return;
 			}
 		} catch (ArrayIndexOutOfBoundsException aioobe) {
 			Log.w ("PanAndZoom", "onTouchEvent: scaleGestureDetector.onTouchEvent()", aioobe);
@@ -116,7 +116,6 @@ public abstract class PanAndZoom implements ScaleGestureDetector.OnScaleGestureL
 				break;
 			}
 		}
-		return true;
 	}
 
 	/**

@@ -25,6 +25,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.graphics.Bitmap;
@@ -54,21 +55,23 @@ import com.jcraft.jsch.DirectTCPIPTunnel;
 import com.jcraft.jsch.Session;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.EOFException;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
 
+@SuppressLint({ "SetTextI18n", "ViewConstructor" })
 public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
     private final static String TAG = "SshClient";
 
     public final static byte MOUSE_BUTTON_LEFT   = 1;
+    @SuppressWarnings("unused")
     public final static byte MOUSE_BUTTON_MIDDLE = 2;
     public final static byte MOUSE_BUTTON_RIGHT  = 4;
 
@@ -517,6 +520,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
                 int y = getLineHeight ();
                 Paint p = getPaint ();
                 p.setColor (Color.WHITE);
+                //noinspection PointlessArithmeticExpression
                 canvas.drawText ("Click menu button", 10, y * 1 + 10, p);
                 canvas.drawText ("   then Connect", 10, y * 2 + 10, p);
                 canvas.drawText ("   to connect", 10, y * 3 + 10, p);
@@ -546,6 +550,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
         /**
          * Handle touch events.
          */
+        @SuppressLint("ClickableViewAccessibility")
         @Override  // View
         public boolean onTouchEvent (@NonNull MotionEvent event)
         {
@@ -870,6 +875,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
                         mdbytes[i] = SwapBits (pwbytes[i]);
                     }
                     SecretKeySpec passwordKeySpec = new SecretKeySpec (mdbytes, "DES");
+                    @SuppressLint("GetInstance")
                     Cipher cipher = Cipher.getInstance ("DES/ECB/NoPadding");
                     cipher.init (Cipher.ENCRYPT_MODE, passwordKeySpec);
 
@@ -1007,7 +1013,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
 
                     // ring bell
                     case 2: {
-                        SshClient.MakeBeepSound ();
+                        sshclient.MakeBeepSound ();
                         break;
                     }
 
@@ -1196,7 +1202,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
                     try {
                         do ReadU8 ();
                         while (zrleis.remaining > 0);
-                    } catch (EOFException eofe) {
+                    } catch (EOFException ignored) {
                     }
                 }
             } catch (Exception e) {
@@ -1391,7 +1397,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
             m.sendToTarget ();
             synchronized (promptLock) {
                 while (prms[2] != null) {
-                    try { promptLock.wait (); } catch (InterruptedException ie) { }
+                    try { promptLock.wait (); } catch (InterruptedException ignored) { }
                 }
             }
         }
@@ -1420,7 +1426,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
                     // wait for Read*() to process it all
                     // or for Close() to be called
                     while (readbuf != null) {
-                        try { tunnelLock.wait (); } catch (InterruptedException ie) { }
+                        try { tunnelLock.wait (); } catch (InterruptedException ignored) { }
                     }
 
                     // ReadFill() is now blocked waiting for more
@@ -1571,8 +1577,8 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
 
             // tell server and ssh library we are done with channel
             if (tunnel != null) {
-                try { tunnel.sendEof    (); } catch (Exception e) { }
-                try { tunnel.disconnect (); } catch (Exception e) { }
+                try { tunnel.sendEof    (); } catch (Exception ignored) { }
+                try { tunnel.disconnect (); } catch (Exception ignored) { }
                 tunnel = null;
             }
         }
@@ -1701,6 +1707,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
      * Prompt user for VNC port number and wake the VNCChan thread when the user supplies it.
      * Kill the VNCChan thread if the user cancels.
      */
+    @SuppressWarnings("SameParameterValue")
     private void GetVNCPortNumber (boolean useSavedPn)
     {
         KeyedValue kv = new KeyedValue () {
@@ -1713,7 +1720,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
                         vncPortNumber = pn;
                         return true;
                     }
-                } catch (NumberFormatException nfe) {
+                } catch (NumberFormatException ignored) {
                 }
                 return false;
             }
@@ -1733,6 +1740,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
      * Prompt user for VNC password and wake the VNCChan thread when the user supplies it.
      * Kill the VNCChan thread if the user cancels.
      */
+    @SuppressWarnings("SameParameterValue")
     private void GetVNCPassword (boolean useSavedPw)
     {
         KeyedValue kv = new KeyedValue () {
@@ -1848,7 +1856,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
                     } finally {
                         reader.close ();
                     }
-                } catch (FileNotFoundException fnfe) {
+                } catch (FileNotFoundException ignored) {
                 }
             } catch (Exception e) {
                 String msg = e.getMessage ();
@@ -1864,7 +1872,7 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
             MasterPassword mp = sshclient.getMasterPassword ();
             try {
                 boolean found = false;
-                PrintWriter writer = new PrintWriter (mp.EncryptedFileWriter (path + ".tmp"));
+                BufferedWriter writer = mp.EncryptedFileWriter (path + ".tmp");
                 try {
                     try {
                         BufferedReader reader = new BufferedReader (mp.EncryptedFileReader (path), 4096);
@@ -1872,7 +1880,8 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
                             String line;
                             while ((line = reader.readLine ()) != null) {
                                 if (!line.startsWith (key)) {
-                                    writer.println (line);
+                                    writer.write (line);
+                                    writer.newLine ();
                                 } else if (line.equals (newline)) {
                                     found = true;
                                     break;
@@ -1881,13 +1890,17 @@ public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
                         } finally {
                             reader.close ();
                         }
-                    } catch (FileNotFoundException fnfe) {
+                    } catch (FileNotFoundException ignored) {
                     }
-                    if (!found) writer.println (newline);
+                    if (!found) {
+                        writer.write (newline);
+                        writer.newLine ();
+                    }
                 } finally {
                     writer.close ();
                 }
                 if (found) {
+                    //noinspection ResultOfMethodCallIgnored
                     new File (path + ".tmp").delete ();
                 } else {
                     MasterPassword.RenameTempToPerm (path);

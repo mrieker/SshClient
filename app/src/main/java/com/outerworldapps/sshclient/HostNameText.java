@@ -27,6 +27,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.SystemClock;
@@ -43,6 +44,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+@SuppressLint({ "SetTextI18n", "ViewConstructor" })
 public class HostNameText extends LinearLayout
         implements View.OnClickListener, TextView.OnEditorActionListener, View.OnFocusChangeListener {
 

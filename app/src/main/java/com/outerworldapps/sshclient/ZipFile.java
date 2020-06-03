@@ -157,7 +157,12 @@ public class ZipFile implements ZipConstants {
             int hiLELOW = rafstrm.read () & 0xFF;
             int localExtraLenOrWhatever = (hiLELOW << 8) | loLELOW;
             // Skip the name and this "extra" data or whatever it is:
-            rafstrm.skip(entry.nameLen + localExtraLenOrWhatever);
+            long toskip = entry.nameLen + localExtraLenOrWhatever;
+            while (toskip > 0) {
+                long skipped = rafstrm.skip (toskip);
+                if (skipped <= 0) break;
+                toskip -= skipped;
+            }
             rafstrm.mLength = rafstrm.mOffset + entry.compressedSize;
             if (entry.compressionMethod == ZipEntry.DEFLATED) {
                 int bufSize = Math.max(1024, (int)Math.min(entry.getSize(), 65535L));
@@ -283,7 +288,7 @@ public class ZipFile implements ZipConstants {
              * object.  If we just read from the RandomAccessFile we'll be
              * doing a read() system call every time.
              */
-            mEntries = new LinkedHashMap<String, ZipEntry> ();
+            mEntries = new LinkedHashMap<> ();
             RAFStream rafs = new RAFStream (mRaf, centralDirOffset);
             BufferedInputStream bin = new BufferedInputStream(rafs, 4096);
             for (int i = 0; i < numEntries; i++) {
@@ -314,7 +319,8 @@ public class ZipFile implements ZipConstants {
         }
 
         @Override
-        public int available() throws IOException {
+        public int available()
+        {
             return (mOffset < mLength ? 1 : 0);
         }
 
@@ -346,7 +352,8 @@ public class ZipFile implements ZipConstants {
         }
 
         @Override
-        public long skip(long n) throws IOException {
+        public long skip(long n)
+        {
             if (n > mLength - mOffset) {
                 n = mLength - mOffset;
             }

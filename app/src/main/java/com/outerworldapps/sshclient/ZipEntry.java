@@ -39,17 +39,18 @@ import java.util.zip.ZipException;
  *
  * @see ZipFile
  */
+@SuppressWarnings("unused")
 public class ZipEntry implements ZipConstants, Cloneable {
     String name, comment;
 
-    long compressedSize = -1, crc = -1, size = -1;
+    long compressedSize, crc, size;
 
-    int compressionMethod = -1, time = -1, modDate = -1;
+    int compressionMethod, time, modDate;
 
     byte[] extra;
 
-    int nameLen = -1;
-    long mLocalHeaderRelOffset = -1;
+    int nameLen;
+    long mLocalHeaderRelOffset;
 
     /**
      * Zip entry state: Deflated.

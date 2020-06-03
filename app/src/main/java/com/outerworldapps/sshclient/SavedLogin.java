@@ -129,7 +129,7 @@ public class SavedLogin {
         StringBuilder sb = new StringBuilder ();
         int i, j;
         for (i = j = 0; (i = s.indexOf ('%', i)) >= 0; i = ++ j) {
-            sb.append (s.substring (j, i));
+            sb.append (s, j, i);
             j = s.indexOf (';', ++ i);
             char c = (char)Integer.parseInt (s.substring (i, j));
             sb.append (c);

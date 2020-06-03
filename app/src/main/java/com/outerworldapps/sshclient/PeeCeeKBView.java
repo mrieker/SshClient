@@ -25,6 +25,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.support.annotation.NonNull;
@@ -39,6 +40,7 @@ import android.widget.TextView;
 
 import java.util.LinkedList;
 
+@SuppressLint("ViewConstructor")
 public class PeeCeeKBView extends KeybdView {
 
     private boolean numLocked;
@@ -58,9 +60,9 @@ public class PeeCeeKBView extends KeybdView {
     {
         removeAllViews ();
 
-        allKeyButtons    = new LinkedList<KeyButton> ();
-        allKeypadButtons = new LinkedList<KeypadButton> ();
-        allShiftButtons  = new LinkedList<KeyButton> ();
+        allKeyButtons    = new LinkedList<> ();
+        allKeypadButtons = new LinkedList<> ();
+        allShiftButtons  = new LinkedList<> ();
         butSize          = 0;
 
         altButtons.buttons.clear ();
@@ -356,13 +358,10 @@ public class PeeCeeKBView extends KeybdView {
         @Override  // TransientButton
         public void OnTouchEvent (int action)
         {
-            switch (action) {
-                case MotionEvent.ACTION_DOWN: {
-                    capsLocked = !capsLocked;
-                    SetButtonColor (capsLocked ? Color.RED : 0);
-                    for (KeyButton kb : allShiftButtons) kb.invalidate ();
-                    break;
-                }
+            if (action == MotionEvent.ACTION_DOWN) {
+                capsLocked = !capsLocked;
+                SetButtonColor (capsLocked ? Color.RED : 0);
+                for (KeyButton kb : allShiftButtons) kb.invalidate ();
             }
 
             super.OnTouchEvent (action);
@@ -382,14 +381,11 @@ public class PeeCeeKBView extends KeybdView {
         @Override  // TransientButton
         public void OnTouchEvent (int action)
         {
-            switch (action) {
-                case MotionEvent.ACTION_DOWN: {
-                    numLocked = !numLocked;
-                    SetButtonColor (numLocked ? Color.RED : 0);
-                    for (KeypadButton kpb : allKeypadButtons) {
-                        kpb.invalidate ();
-                    }
-                    break;
+            if (action == MotionEvent.ACTION_DOWN) {
+                numLocked = !numLocked;
+                SetButtonColor (numLocked ? Color.RED : 0);
+                for (KeypadButton kpb : allKeypadButtons) {
+                    kpb.invalidate ();
                 }
             }
 

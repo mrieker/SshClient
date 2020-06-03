@@ -26,6 +26,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.util.Log;
@@ -40,8 +41,8 @@ import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.UserInfo;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.FileNotFoundException;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -49,6 +50,7 @@ import java.util.List;
 import java.util.TreeMap;
 
 
+@SuppressLint("SetTextI18n")
 public class MyHostKeyRepo implements HostKeyRepository {
     public static final String TAG = "SshClient";
 
@@ -62,7 +64,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
     {
         sshclient = sc;
         knownhostsfilename = sc.getKnownhostsfilename ();
-        pool = new TreeMap<String,ArrayList<HostKey>> ();
+        pool = new TreeMap<> ();
         ReadExistingFile ();
     }
 
@@ -329,11 +331,23 @@ public class MyHostKeyRepo implements HostKeyRepository {
             try {
                 String rec;
                 while ((rec = rdr.readLine ()) != null) {
+                    // record format is: "host type key"
                     int i = rec.indexOf (' ');
                     String host = rec.substring (0, i);
                     int j = rec.indexOf (' ', ++ i);
                     String type = rec.substring (i, j);
                     int typebin = TypeStr2Bin (type);
+                    if (typebin == 0) {
+                        // somehow we have some "time host type key"
+                        // ...so strip off the time
+                        rec = rec.substring (i);
+                        i = rec.indexOf (' ');
+                        host = rec.substring (0, i);
+                        j = rec.indexOf (' ', ++ i);
+                        type = rec.substring (i, j);
+                        typebin = TypeStr2Bin (type);
+                        if (typebin == 0) throw new Exception ("bad keytype <" + type + ">");
+                    }
                     String keystr = rec.substring (++ j);
                     byte[] keybin = KeyStr2Bin (keystr);
                     HostKey hk = new HostKey (host, typebin, keybin);
@@ -342,7 +356,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
             } finally {
                 rdr.close ();
             }
-        } catch (FileNotFoundException fnfe) {
+        } catch (FileNotFoundException ignored) {
         } catch (Exception e) {
             Log.e (TAG, "error reading " + knownhostsfilename, e);
             sshclient.ErrorAlert ("Error reading known hosts", SshClient.GetExMsg (e));
@@ -356,7 +370,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
     private void RewriteFile ()
     {
         try {
-            PrintWriter wtr = new PrintWriter (sshclient.getMasterPassword ().EncryptedFileWriter (knownhostsfilename + ".tmp"));
+            BufferedWriter wtr = sshclient.getMasterPassword ().EncryptedFileWriter (knownhostsfilename + ".tmp");
             for (String host : pool.keySet ()) {
                 for (HostKey hk : pool.get (host)) {
                     String type = hk.getType ();
@@ -366,13 +380,15 @@ public class MyHostKeyRepo implements HostKeyRepository {
                     if (host.indexOf (' ') >= 0) throw new Exception ("host <" + host + "> contains space");
                     if (type.indexOf (' ') >= 0) throw new Exception ("type <" + type + "> contains space");
                     int typebin = TypeStr2Bin (type);
+                    if (typebin == 0) throw new Exception ("bad type <" + type + ">");
                     byte[] keybin = KeyStr2Bin (key);
                     HostKey tmp = new HostKey (host, typebin, keybin);
                     if (!tmp.getType ().equals (type)) throw new Exception ("type verify error");
                     if (!tmp.getKey ().equals (key)) throw new Exception ("key verify error");
 
                     // we should be able to convert it back, write to file
-                    wtr.println (host + " " + type + " " + key);
+                    wtr.write (host + " " + type + " " + key);
+                    wtr.newLine ();
                 }
             }
             wtr.close ();
@@ -392,7 +408,6 @@ public class MyHostKeyRepo implements HostKeyRepository {
         int hkt = 0;
         if (type.equals ("ssh-dss")) hkt = HostKey.SSHDSS;
         if (type.equals ("ssh-rsa")) hkt = HostKey.SSHRSA;
-        if (hkt == 0) throw new RuntimeException ("bad keytype " + type);
         return hkt;
     }
 

@@ -83,11 +83,12 @@ public class JschUserInfo implements UserInfo {
         String[] args = { message, null };
         session.getScreendatahandler ().obtainMessage (ScreenDataHandler.YESNODIAG, args).sendToTarget ();
         String answer;
+        //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (args) {
             while ((answer = args[1]) == null) {
                 try {
                     args.wait ();
-                } catch (InterruptedException ie) {
+                } catch (InterruptedException ignored) {
                 }
             }
         }
@@ -110,16 +111,18 @@ public class JschUserInfo implements UserInfo {
      * returns String[0] = response (or null if Cancel)
      *               [1] = null, "Yes" or "No" for the 'save to disk' checkbox
      */
+    @SuppressWarnings("SameParameterValue")
     private String[] DialogStringPrompt (String title, String message, String saveprompt, String initial)
     {
         String[] args = { title, message, null, null, saveprompt, initial };
         session.getScreendatahandler ().obtainMessage (ScreenDataHandler.TEXTDIAG, args).sendToTarget ();
         String answer, saveit;
+        //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (args) {
             while (args[2] == null) {
                 try {
                     args.wait ();
-                } catch (InterruptedException ie) {
+                } catch (InterruptedException ignored) {
                 }
             }
             answer = args[3];

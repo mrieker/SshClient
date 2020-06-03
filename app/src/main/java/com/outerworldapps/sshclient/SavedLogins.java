@@ -26,6 +26,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.util.Log;
@@ -36,12 +37,13 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.Set;
 import java.util.TreeMap;
 
+@SuppressLint("SetTextI18n")
 public class SavedLogins extends TreeMap<String,SavedLogin> {
     public static final String TAG = "SshClient";
 
@@ -72,11 +74,6 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
                 sshclient.ErrorAlert ("Error reading saved logins", SshClient.GetExMsg (e));
             }
         }
-    }
-
-    public String GetFileName ()
-    {
-        return filename.getPath ();
     }
 
     /**
@@ -144,10 +141,11 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
     {
         File tempname = new File (filename.getPath () + ".tmp");
         try {
-            PrintWriter wtr = new PrintWriter (sshclient.getMasterPassword ().EncryptedFileWriter (tempname.getPath ()));
+            BufferedWriter wtr = sshclient.getMasterPassword ().EncryptedFileWriter (tempname.getPath ());
             try {
                 for (SavedLogin sh : values ()) {
-                    wtr.println (sh.getRecord ());
+                    wtr.write (sh.getRecord ());
+                    wtr.newLine ();
                 }
             } finally {
                 wtr.close ();
@@ -171,7 +169,7 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
             Set<String> keys = keySet ();
             String[] array = new String[keys.size()];
             array = keys.toArray (array);
-            autocompleteadapter = new ArrayAdapter<String> (
+            autocompleteadapter = new ArrayAdapter<> (
                     sshclient,
                     android.R.layout.simple_dropdown_item_1line,
                     array

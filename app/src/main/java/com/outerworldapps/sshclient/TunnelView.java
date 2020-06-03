@@ -24,6 +24,7 @@
 
 package com.outerworldapps.sshclient;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.text.InputType;
 import android.view.View;
@@ -37,6 +38,7 @@ import android.widget.TextView;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 
+@SuppressLint({ "SetTextI18n", "ViewConstructor" })
 public class TunnelView extends ScrollView {
     public static final String TAG = "SshClient";
 
@@ -157,10 +159,10 @@ public class TunnelView extends ScrollView {
         StringBuilder sb = new StringBuilder ();
         if (listenLocal.isChecked ()) {
             int listenport = Integer.parseInt (listenPort.getText ().toString ().trim ());
-            sb.append (Integer.toString (listenport));
+            sb.append (listenport);
             if (isOpen () && (actualPort != listenport)) {
                 sb.append (" (");
-                sb.append (Integer.toString (actualPort));
+                sb.append (actualPort);
                 sb.append (')');
             }
             sb.append (" => ");
@@ -184,12 +186,11 @@ public class TunnelView extends ScrollView {
     {
         if (!validate ().equals ("")) return null;
 
-        StringBuilder sb = new StringBuilder ();
-        sb.append ("listenLocal=");  sb.append (Boolean.toString (listenLocal.isChecked ()));
-        sb.append ("&listenPort=");  sb.append (listenPort.getText ().toString ().trim ());
-        sb.append ("&connectHost="); sb.append (connectHost.getText ().toString ().trim ());
-        sb.append ("&connectPort="); sb.append (connectPort.getText ().toString ().trim ());
-        return sb.toString ();
+        return
+            "listenLocal="  + listenLocal.isChecked () +
+            "&listenPort="  + listenPort.getText ().toString ().trim () +
+            "&connectHost=" + connectHost.getText ().toString ().trim () +
+            "&connectPort=" + connectPort.getText ().toString ().trim ();
     }
 
     /**
@@ -241,7 +242,7 @@ public class TunnelView extends ScrollView {
                     return true;
                 }
             }
-        } catch (JSchException je) {
+        } catch (JSchException ignored) {
         }
         return false;
     }
@@ -294,9 +295,9 @@ public class TunnelView extends ScrollView {
     {
         if (isOpen ()) {
             if (listenLocal.isChecked ()) {
-                try { jsession.delPortForwardingL (actualPort); } catch (JSchException je) { }
+                try { jsession.delPortForwardingL (actualPort); } catch (JSchException ignored) { }
             } else {
-                try { jsession.delPortForwardingR (actualPort); } catch (JSchException je) { }
+                try { jsession.delPortForwardingR (actualPort); } catch (JSchException ignored) { }
             }
         }
     }

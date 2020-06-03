@@ -1,20 +1,48 @@
 apply plugin: 'com.android.application'
 
+// http://stackoverflow.com/questions/28498688/gradle-script-to-autoversion-and-include-the-commit-hash-in-android
+def getGitHash = { ->
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'rev-parse', 'HEAD'
+        standardOutput = stdout
+    }
+    return stdout.toString().trim()
+}
+
+def getGitStatus = { ->
+    def stdout = new ByteArrayOutputStream()
+    exec {
+        commandLine 'git', 'status'
+        standardOutput = stdout
+    }
+    return stdout.toString().trim().replace('\\','\\\\').replace('\n','\\n').replace('"','\\"')
+}
+
 android {
-    compileSdkVersion 8
-    buildToolsVersion "25.0.0"
+    compileSdkVersion 28
+    buildToolsVersion "28.0.3"
 
     defaultConfig {
-        minSdkVersion 8
-        targetSdkVersion 8
+        minSdkVersion 11
+        targetSdkVersion 28
+        buildConfigField "String", "GitHash", "\"${getGitHash()}\""
+        buildConfigField "String", "GitStatus", "\"${getGitStatus()}\""
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_7
         targetCompatibility JavaVersion.VERSION_1_7
     }
+
+    lintOptions {
+        //checkReleaseBuilds false
+        // Or, if you prefer, you can continue to check for errors in release builds,
+        // but continue the build even when errors are found:
+        //abortOnError false
+    }
 }
 
 dependencies {
-    compile 'com.android.support:gridlayout-v7:22.2.0'
+    implementation 'com.android.support:gridlayout-v7:22.2.0'
 }

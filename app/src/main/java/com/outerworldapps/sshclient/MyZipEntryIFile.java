@@ -103,7 +103,7 @@ public class MyZipEntryIFile extends IFile {
     }
 
     @Override
-    public OutputStream getOutputStream (int osmode) throws IOException {
+    public OutputStream getOutputStream (int osmode) {
         return null;
     }
 
@@ -113,12 +113,12 @@ public class MyZipEntryIFile extends IFile {
     }
 
     @Override
-    public RAInputStream getRAInputStream () throws IOException {
+    public RAInputStream getRAInputStream () {
         return null;
     }
 
     @Override
-    public RAOutputStream getRAOutputStream (int osmode) throws IOException {
+    public RAOutputStream getRAOutputStream (int osmode) {
         return null;
     }
 

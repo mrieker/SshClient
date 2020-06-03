@@ -25,6 +25,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.support.v7.widget.GridLayout;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
@@ -33,6 +34,7 @@ import android.widget.TextView;
 
 import java.util.LinkedList;
 
+@SuppressLint("ViewConstructor")
 public class VT100KBView extends KeybdView {
     private final static String ESC = "\033";
 
@@ -52,9 +54,9 @@ public class VT100KBView extends KeybdView {
     {
         removeAllViews ();
 
-        allKeyButtons    = new LinkedList<KeyButton> ();
-        allKeypadButtons = new LinkedList<KeypadButton> ();
-        allShiftButtons  = new LinkedList<KeyButton> ();
+        allKeyButtons    = new LinkedList<> ();
+        allKeypadButtons = new LinkedList<> ();
+        allShiftButtons  = new LinkedList<> ();
         butSize          = 0;
 
         altButtons.buttons.clear ();

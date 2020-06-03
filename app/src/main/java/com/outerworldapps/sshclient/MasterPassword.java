@@ -25,6 +25,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.os.SystemClock;
@@ -38,29 +39,30 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
 import java.io.Reader;
-import java.io.Writer;
+import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
+import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.Set;
+import java.util.LinkedList;
 
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
 import javax.crypto.NoSuchPaddingException;
+import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 public class MasterPassword {
@@ -73,9 +75,10 @@ public class MasterPassword {
     private AlertDialog currentMenuDialog;  // currently displayed AlertDialog (if needed by its callbacks)
     private File masterpwfile;              // stores validation parameters for master password
     private long lastAuthentication;        // elapsedRealtime() of last authentication
-    private SecretKeySpec secretkeyspec;    // used to encrypt/decrypt our data files
     private SecureRandom secrand;
     private SshClient sshclient;
+    private WrappedStreams readWrapper;
+    private WrappedStreams writeWrapper;
 
     public MasterPassword (SshClient sc)
     {
@@ -94,11 +97,11 @@ public class MasterPassword {
          * authenticated.
          */
         long now = SystemClock.elapsedRealtime ();
-        if ((secretkeyspec != null) && (lastAuthentication + AUTH_LIFETIME > now)) {
+        if ((readWrapper != null) && (writeWrapper != null) && (lastAuthentication + AUTH_LIFETIME > now)) {
             sshclient.HaveMasterPassword ();
             return;
         }
-        secretkeyspec = null;
+        readWrapper = writeWrapper = null;
         lastAuthentication = now;
 
         /*
@@ -116,9 +119,7 @@ public class MasterPassword {
              * until user sets a master password, if ever.
              */
             try {
-                MessageDigest md = MessageDigest.getInstance ("SHA-256");
-                byte[] mdbytes = md.digest (THEGOODPW.getBytes ("UTF-8"));
-                secretkeyspec = new SecretKeySpec (mdbytes, "AES");
+                writeWrapper = readWrapper = new WrappedECBStream (THEGOODPW);
             } catch (Exception e) {
                 Log.e (TAG, "error setting up null encryption", e);
                 sshclient.ErrorAlert ("Error setting up null encryption", SshClient.GetExMsg (e));
@@ -181,26 +182,42 @@ public class MasterPassword {
     {
         try {
             String masterpasswordstring = masterPasswordText.getText ().toString ().trim ();
-            MessageDigest md = MessageDigest.getInstance ("SHA-256");
-            byte[] masterpassworddigest = md.digest (masterpasswordstring.getBytes ("UTF-8"));
-            secretkeyspec = new SecretKeySpec (masterpassworddigest, "AES");
+            // try to read using new CBC format
+            readWrapper = new WrappedCBCStream (masterpasswordstring);
+            if (!VerifyMasterPassword ()) {
+                // try to read using old EBC format
+                readWrapper = new WrappedECBStream (masterpasswordstring);
+                if (!VerifyMasterPassword ()) {
+                    throw new Exception ("bad password");
+                }
+                // convert old ECB format to CBC format
+                SetChangeMasterPasswordWork (masterpasswordstring);
+            }
+            writeWrapper = readWrapper;
+            // tell client master password is good
+            sshclient.HaveMasterPassword ();
+        } catch (Exception e) {
+            readWrapper = writeWrapper = null;
+            Log.w (TAG, "error verifying " + masterpwfile.getPath (), e);
+            PromptForMasterPassword ();
+        }
+    }
+
+    private boolean VerifyMasterPassword ()
+    {
+        try {
             BufferedReader br = new BufferedReader (EncryptedFileReader (masterpwfile.getPath ()), 1024);
             try {
+                @SuppressWarnings("unused")
                 String salt = br.readLine ();  // random salt string
                 String good = br.readLine ();  // a known text
-                // usually can't even read the lines if pw is bad but give it a final check...
-                if (!good.equals (THEGOODPW)) {
-                    throw new Exception ("data check bad");
-                }
+                return good.equals (THEGOODPW);
             } finally {
                 br.close ();
             }
         } catch (Exception e) {
-            Log.w (TAG, "error verifying " + masterpwfile.getPath (), e);
-            PromptForMasterPassword ();
-            return;
+            return false;
         }
-        sshclient.HaveMasterPassword ();
     }
 
     /********************\
@@ -258,49 +275,8 @@ public class MasterPassword {
      */
     private void SetChangeMasterPassword (String masterpasswordstring)
     {
-        String savedloginsfilename = sshclient.getSavedlogins ().GetFileName ();
-        Set<String> keypairidents = new LocalKeyPairMenu (sshclient).GetExistingKeypairIdents ().keySet ();
-
         try {
-            SecretKeySpec oldsecretkeyspec = secretkeyspec;
-            MessageDigest md = MessageDigest.getInstance ("SHA-256");
-            SecretKeySpec newsecretkeyspec = new SecretKeySpec (md.digest (masterpasswordstring.getBytes ("UTF-8")), "AES");
-
-            // re-encrypt all data files to temp files
-            String vncPortNumberPath = new File (sshclient.getFilesDir (), "vncportnumbers.enc").getPath ();
-            String vncPasswordPath   = new File (sshclient.getFilesDir (), "vncpasswords.enc").getPath ();
-            boolean havesavedlogins  = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, savedloginsfilename);
-            boolean haveknownhosts   = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getKnownhostsfilename ());
-            boolean havetunnels      = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getTunnelMenu ().getTunnelFileName ());
-            boolean havevncports     = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, vncPortNumberPath);
-            boolean havevncpwds      = ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, vncPasswordPath);
-            for (String ident : keypairidents) {
-                ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getPrivatekeyfilename (ident));
-                ReEncryptFile (oldsecretkeyspec, newsecretkeyspec, sshclient.getPublickeyfilename  (ident));
-            }
-
-            // write out new temp master password file
-            // also activates new master key
-            secretkeyspec = newsecretkeyspec;
-            File masterpwtemp = new File (masterpwfile.getPath () + ".tmp");
-            PrintWriter pw = new PrintWriter (EncryptedFileWriter (masterpwtemp.getPath ()));
-            pw.println (GenerateRandomSalt ());
-            pw.println (THEGOODPW);
-            pw.close ();
-
-            // rename master password and data temp files to permanent names
-            // a crash in here and it's borked
-            if (havesavedlogins) RenameTempToPerm (savedloginsfilename);
-            if (haveknownhosts)  RenameTempToPerm (sshclient.getKnownhostsfilename ());
-            if (havetunnels)     RenameTempToPerm (sshclient.getTunnelMenu ().getTunnelFileName ());
-            if (havevncports)    RenameTempToPerm (vncPortNumberPath);
-            if (havevncpwds)     RenameTempToPerm (vncPasswordPath);
-            for (String ident : keypairidents) {
-                RenameTempToPerm (sshclient.getPrivatekeyfilename (ident));
-                RenameTempToPerm (sshclient.getPublickeyfilename  (ident));
-            }
-            RenameTempToPerm (masterpwfile.getPath ());
-
+            SetChangeMasterPasswordWork (masterpasswordstring);
             sshclient.ErrorAlert ("Set/Change master password", "New master password set");
         } catch (Exception e) {
             Log.e (TAG, "error setting/changing master password", e);
@@ -308,17 +284,48 @@ public class MasterPassword {
         }
     }
 
-    private boolean ReEncryptFile (SecretKeySpec oldsecretkeyspec, SecretKeySpec newsecretkeyspec, String permfilename)
-            throws IOException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
+    /**
+     * Re-encrypt files with new master password.
+     * Also use newest algorithm.
+     */
+    private void SetChangeMasterPasswordWork (String masterpasswordstring)
+            throws Exception
     {
-        secretkeyspec = oldsecretkeyspec;
-        byte[] plainbin = ReadEncryptedFileBytesOrNull (permfilename);
-        if (plainbin == null) return false;
+        // set up to write using new algorithm and password
+        writeWrapper = new WrappedCBCStream (masterpasswordstring);
 
-        String tempfilename = permfilename + ".tmp";
-        secretkeyspec = newsecretkeyspec;
-        WriteEncryptedFileBytes (tempfilename, plainbin);
-        return true;
+        // read all .enc files using old algorithm and password
+        // write them to .enc.tmp files using new algorithm and password
+        File[] oldfiles = sshclient.getFilesDir ().listFiles ();
+        for (File oldfile : oldfiles) {
+            String oldpath = oldfile.getPath ();
+            if (oldpath.endsWith (".enc")) {
+                byte[] plainbin = ReadEncryptedFileBytes (oldpath);
+                WriteEncryptedFileBytes (oldpath + ".tmp", plainbin);
+            }
+        }
+
+        // write out new temp master password file
+        File masterpwtemp = new File (masterpwfile.getPath () + ".tmp");
+        BufferedWriter bw = new BufferedWriter (EncryptedFileWriter (masterpwtemp.getPath ()));
+        bw.write (GenerateRandomSalt ());
+        bw.newLine ();
+        bw.write (THEGOODPW);
+        bw.newLine ();
+        bw.close ();
+
+        // rename master password and data temp files to permanent names
+        // a crash in here and it's borqed
+        for (File oldfile : oldfiles) {
+            String oldpath = oldfile.getPath ();
+            if (oldpath.endsWith (".enc") && !oldpath.endsWith ("master_password.enc")) {
+                RenameTempToPerm (oldpath);
+            }
+        }
+        RenameTempToPerm (masterpwfile.getPath ());
+
+        // use new algorithm and password to read from now on
+        readWrapper = writeWrapper;
     }
 
     private String GenerateRandomSalt ()
@@ -330,46 +337,39 @@ public class MasterPassword {
     /**************************************\
      *  Encrypted file reading & writing  *
      *  Uses master password key          *
-     \**************************************/
+    \**************************************/
 
+    // path must be in top-level files directory and end with .enc so SetChangeMasterPassword() will re-encrypt it
     public Reader EncryptedFileReader (String path)
-            throws FileNotFoundException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
+            throws InvalidAlgorithmParameterException, InvalidKeyException, IOException, NoSuchAlgorithmException, NoSuchPaddingException
     {
-        InputStream ciphertextstream = new FileInputStream (path);
-        if (secretkeyspec != null) {
-            Cipher cipher = Cipher.getInstance ("AES");
-            cipher.init (Cipher.DECRYPT_MODE, secretkeyspec);
-            ciphertextstream = new CipherInputStream (ciphertextstream, cipher);
-        }
+        InputStream ciphertextstream = readWrapper.WrapInputStream (new FileInputStream (path));
         return new InputStreamReader (ciphertextstream);
     }
 
+    // path must be in top-level files directory and end with .enc so SetChangeMasterPassword() will re-encrypt it
     public byte[] ReadEncryptedFileBytes (String path)
-            throws IOException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
+            throws IOException, InvalidAlgorithmParameterException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
     {
-        InputStream ciphertextstream = new FileInputStream (path);
+        InputStream ciphertextstream = readWrapper.WrapInputStream (new FileInputStream (path));
         try {
-            if (secretkeyspec != null) {
-                Cipher cipher = Cipher.getInstance ("AES");
-                cipher.init (Cipher.DECRYPT_MODE, secretkeyspec);
-                ciphertextstream = new CipherInputStream (ciphertextstream, cipher);
-            }
-            byte[] output = new byte[256];
-            int offset = 0;
+            LinkedList<byte[]> list = new LinkedList<> ();
+            int total = 0;
             while (true) {
-                if (offset >= output.length) {
-                    byte[] newout = new byte[output.length+256];
-                    System.arraycopy (output, 0, newout, 0, offset);
-                    output = newout;
-                }
-                int rc = ciphertextstream.read (output, offset, output.length - offset);
+                byte[] bytes = new byte[4000];
+                int rc = ciphertextstream.read (bytes, 2, bytes.length - 2);
                 if (rc <= 0) break;
-                offset += rc;
+                bytes[0] = (byte) rc;
+                bytes[1] = (byte) (rc >> 8);
+                list.add (bytes);
+                total += rc;
             }
-            if (output.length > offset) {
-                byte[] newout = new byte[offset];
-                System.arraycopy (output, 0, newout, 0, offset);
-                output = newout;
+            byte[] output = new byte[total];
+            total = 0;
+            for (byte[] bytes : list) {
+                int rc = (bytes[0] & 0xFF) | (bytes[1] << 8);
+                System.arraycopy (bytes, 2, output, total, rc);
+                total += rc;
             }
             return output;
         } finally {
@@ -377,34 +377,23 @@ public class MasterPassword {
         }
     }
 
-    public Writer EncryptedFileWriter (String path)
-            throws FileNotFoundException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
+    // path must be in top-level files directory and end with .enc so SetChangeMasterPassword() will re-encrypt it
+    public BufferedWriter EncryptedFileWriter (String path)
+            throws InvalidAlgorithmParameterException, InvalidKeyException, IOException, NoSuchAlgorithmException, NoSuchPaddingException
     {
-        return new OutputStreamWriter (EncryptedFileOutputStream (path));
+        return new BufferedWriter (new OutputStreamWriter (EncryptedFileOutputStream (path)));
     }
 
+    // path must be in top-level files directory and end with .enc so SetChangeMasterPassword() will re-encrypt it
     public OutputStream EncryptedFileOutputStream (String path)
-            throws FileNotFoundException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
+            throws InvalidAlgorithmParameterException, InvalidKeyException, IOException, NoSuchAlgorithmException, NoSuchPaddingException
     {
-        OutputStream ciphertextstream = new FileOutputStream (path);
-        if (secretkeyspec != null) {
-            Cipher cipher = Cipher.getInstance ("AES");
-            cipher.init (Cipher.ENCRYPT_MODE, secretkeyspec);
-            ciphertextstream = new CipherOutputStream (ciphertextstream, cipher);
-        }
-        return ciphertextstream;
+        return writeWrapper.WrapOutputStream (new FileOutputStream (path));
     }
 
-
-    private byte[] ReadEncryptedFileBytesOrNull (String path)
-            throws IOException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
-    {
-        if (!new File (path).exists ()) return null;
-        return ReadEncryptedFileBytes (path);
-    }
-
+    // path must be in top-level files directory and end with .enc so SetChangeMasterPassword() will re-encrypt it
     public void WriteEncryptedFileBytes (String path, byte[] data)
-            throws IOException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
+            throws IOException, InvalidAlgorithmParameterException, InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
     {
         OutputStream ciphertext = EncryptedFileOutputStream (path);
         ciphertext.write (data);
@@ -416,6 +405,105 @@ public class MasterPassword {
     {
         if (!new File (permname + ".tmp").renameTo (new File (permname))) {
             throw new IOException ("error renaming " + permname + ".tmp to " + permname);
+        }
+    }
+
+    /**
+     * Wrap the encrypted files using whatever algorithm.
+     */
+    private static abstract class WrappedStreams {
+        public abstract InputStream WrapInputStream (InputStream ciphertextstream)
+                throws InvalidAlgorithmParameterException, InvalidKeyException, IOException,
+                NoSuchAlgorithmException, NoSuchPaddingException;
+
+        public abstract OutputStream WrapOutputStream (OutputStream ciphertextstream)
+                throws InvalidAlgorithmParameterException, InvalidKeyException, IOException,
+                NoSuchAlgorithmException, NoSuchPaddingException;
+    }
+
+    // newer more secure algorithm
+    private class WrappedCBCStream extends WrappedStreams {
+        private SecretKeySpec secretkeyspec;    // used to encrypt/decrypt our data files
+
+        public WrappedCBCStream (String masterpasswordstring)
+                throws NoSuchAlgorithmException, UnsupportedEncodingException
+        {
+            MessageDigest md = MessageDigest.getInstance ("SHA-256");
+            secretkeyspec = new SecretKeySpec (md.digest (masterpasswordstring.getBytes ("UTF-8")), "AES");
+        }
+
+        @Override
+        public InputStream WrapInputStream (InputStream ciphertextstream)
+                throws InvalidAlgorithmParameterException, InvalidKeyException, IOException, NoSuchAlgorithmException, NoSuchPaddingException
+        {
+            Cipher cipher = Cipher.getInstance ("AES/CBC/PKCS5Padding");
+            IvParameterSpec iv = new IvParameterSpec (ReadIvBytes (ciphertextstream));
+            cipher.init (Cipher.DECRYPT_MODE, secretkeyspec, iv);
+            return new CipherInputStream (ciphertextstream, cipher);
+        }
+
+        @Override
+        public OutputStream WrapOutputStream (OutputStream ciphertextstream)
+                throws InvalidAlgorithmParameterException, InvalidKeyException, IOException, NoSuchAlgorithmException, NoSuchPaddingException
+        {
+            Cipher cipher = Cipher.getInstance ("AES/CBC/PKCS5Padding");
+            IvParameterSpec iv = new IvParameterSpec (WriteIvBytes (ciphertextstream));
+            cipher.init (Cipher.ENCRYPT_MODE, secretkeyspec, iv);
+            return new CipherOutputStream (ciphertextstream, cipher);
+        }
+
+        private byte[] ReadIvBytes (InputStream ciphertextstream)
+                throws IOException
+        {
+            byte[] randbytes = new byte[16];
+            for (int i = 0; i < 16;) {
+                int rc = ciphertextstream.read (randbytes, i, 16 - i);
+                if (rc <= 0) throw new IOException ("eof reading iv bytes");
+                i += rc;
+            }
+            return randbytes;
+        }
+
+        private byte[] WriteIvBytes (OutputStream ciphertextstream)
+                throws IOException
+        {
+            if (secrand == null) secrand = new SecureRandom ();
+            byte[] randbytes = new byte[16];
+            secrand.nextBytes (randbytes);
+            ciphertextstream.write (randbytes);
+            return randbytes;
+        }
+    }
+
+    // old default android insecure algorithm
+    private static class WrappedECBStream extends WrappedStreams {
+        private SecretKeySpec secretkeyspec;    // used to encrypt/decrypt our data files
+
+        public WrappedECBStream (String masterpasswordstring)
+                throws NoSuchAlgorithmException, UnsupportedEncodingException
+        {
+            MessageDigest md = MessageDigest.getInstance ("SHA-256");
+            secretkeyspec = new SecretKeySpec (md.digest (masterpasswordstring.getBytes ("UTF-8")), "AES");
+        }
+
+        @Override
+        public InputStream WrapInputStream (InputStream ciphertextstream)
+                throws InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
+        {
+            @SuppressLint("GetInstance")
+            Cipher cipher = Cipher.getInstance ("AES/ECB/PKCS5Padding");
+            cipher.init (Cipher.DECRYPT_MODE, secretkeyspec);
+            return new CipherInputStream (ciphertextstream, cipher);
+        }
+
+        @Override
+        public OutputStream WrapOutputStream (OutputStream ciphertextstream)
+                throws InvalidKeyException, NoSuchAlgorithmException, NoSuchPaddingException
+        {
+            @SuppressLint("GetInstance")
+            Cipher cipher = Cipher.getInstance ("AES/ECB/PKCS5Padding");
+            cipher.init (Cipher.ENCRYPT_MODE, secretkeyspec);
+            return new CipherOutputStream (ciphertextstream, cipher);
         }
     }
 }

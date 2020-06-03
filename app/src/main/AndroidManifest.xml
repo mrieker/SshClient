@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-	package="com.outerworldapps.sshclient"
-	android:versionCode="20500"
-	android:versionName="2.5" >
+    package="com.outerworldapps.sshclient"
+    android:versionCode="20601"
+    android:versionName="2.6.1" >
 
-	<uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <!--
@@ -18,21 +19,21 @@
          ...get new instance, old connection lost
     -->
     <application
-		android:icon="@drawable/launch_image"
-		android:label="@string/app_name" >
-		<activity
-			android:name=".SshClient"
-			android:label="@string/app_name"
+        android:icon="@drawable/launch_image"
+        android:label="@string/app_name"
+        android:theme="@style/MyTheme">
+        <activity
+            android:name=".SshClient"
+            android:label="@string/app_name"
             android:alwaysRetainTaskState="true"
             android:configChanges="screenLayout|orientation"
             android:launchMode="singleInstance"
             android:windowSoftInputMode="adjustResize">
-			<intent-filter>
-				<action android:name="android.intent.action.MAIN" />
-				<category android:name="android.intent.category.LAUNCHER" />
-			</intent-filter>
-		</activity>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <service android:name=".JSessionService" />
-	</application>
-
+    </application>
 </manifest>

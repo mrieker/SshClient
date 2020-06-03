@@ -327,7 +327,6 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
         private Paint bgpaint;                       // used to paint text background rectangles
         private Paint cursorPaint;                   // used to paint cursor
         private Paint fgpaint;                       // used to paint text characters
-        private Paint selectPaint;                   // background paint for selected text
         private Paint showeolPaint;                  // paints the EOL character
 
         public ShellEditText ()
@@ -345,10 +344,6 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
 
             fgpaint = getPaint ();
             fgpaint.setStyle (Paint.Style.FILL_AND_STROKE);
-
-            selectPaint = new Paint ();
-            selectPaint.setColor (Color.GRAY);
-            selectPaint.setStyle (Paint.Style.FILL);
 
             showeolPaint = new Paint ();
             showeolPaint.setTypeface (Typeface.MONOSPACE);
@@ -387,6 +382,7 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
         /**
          * Panning (scrolling) the text.
          */
+        @SuppressLint("ClickableViewAccessibility")
         @Override
         public boolean onTouchEvent (@NonNull MotionEvent me)
         {
@@ -397,7 +393,6 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
         /**
          * We were invalidated via invalidate(), so draw all the text to the canvas.
          */
-        @SuppressWarnings("ConstantConditions")
         @Override
         protected void onDraw (@NonNull Canvas canvas)
         {
@@ -431,8 +426,8 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
                 int right      = getWidth ();
 
                 // get selected text range if any
-                int selbeg = (selectBeg <= selectEnd) ? selectBeg : selectEnd;
-                int selend = (selectEnd >= selectBeg) ? selectEnd : selectBeg;
+                int selbeg = Math.min (selectBeg, selectEnd);
+                int selend = Math.max (selectEnd, selectBeg);
 
                 // a vt100 normally has (somewhat) white characters on a black background
                 // so we consider it to be reversed when the settings background is white
@@ -553,7 +548,6 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
          * renderCursor < 0: leave scrolling alone
          *             else: adjust scrolling such that cursor position is visible
          */
-        @SuppressWarnings("ConstantConditions")
         private void RenderText ()
         {
             // calculate number of characters that will fit in a single line of the
@@ -1252,7 +1246,7 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
     {
         char[] array = new char[] { (char)code };
         if (!screenTextBuffer.SendStringToHostShell (new String (array))) {
-            SshClient.MakeBeepSound ();
+            sshclient.MakeBeepSound ();
         }
     }
 
@@ -1311,7 +1305,7 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
             }
             default: {
                 Log.w (TAG, "ignoring keyboard char <" + ch + "> while frozen");
-                SshClient.MakeBeepSound ();
+                sshclient.MakeBeepSound ();
                 break;
             }
         }
@@ -1331,8 +1325,8 @@ public class ScreenTextView extends KeyboardableView implements SshClient.HasMai
         final char[] twt = screenTextBuffer.twt;
         final int    twb = screenTextBuffer.twb;
         final int    twm = screenTextBuffer.twm;
-        int beg = (selectBeg <= selectEnd) ? selectBeg : selectEnd;
-        int end = (selectEnd >= selectBeg) ? selectEnd : selectBeg;
+        int beg = Math.min (selectBeg, selectEnd);
+        int end = Math.max (selectEnd, selectBeg);
         int len = end - beg;
         beg = (twb + beg) & twm;
         end = (twb + end - 1) & twm;

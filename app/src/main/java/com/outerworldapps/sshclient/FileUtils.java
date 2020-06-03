@@ -97,7 +97,7 @@ public class FileUtils {
             // might be trying to copy a symlink
             String symlink = oldFile.getSymLink ();
             if (symlink != null) {
-                try { newFile.delete (); } catch (IOException ioe) { }
+                try { newFile.delete (); } catch (IOException ignored) { }
                 newFile.putSymLink (symlink);
                 return symlink.length ();
             }
@@ -182,9 +182,10 @@ public class FileUtils {
                         // wait here as long as we are paused
                         Object pauseLock = xferListener.paused ();
                         if (pauseLock != null) {
+                            //noinspection SynchronizationOnLocalVariableOrMethodParameter
                             synchronized (pauseLock) {
                                 while (xferListener.paused () != null) {
-                                    try { pauseLock.wait (); } catch (InterruptedException ie) { }
+                                    try { pauseLock.wait (); } catch (InterruptedException ignored) { }
                                 }
                             }
                         }
@@ -217,6 +218,7 @@ public class FileUtils {
                                     seqis = ranis;
                                     ranis = null;
                                 }
+                                if (seqis == null) throw new NullPointerException ("seqis");
 
                                 // copy...
                                 long nextupd = 0;
@@ -289,7 +291,7 @@ public class FileUtils {
     private static void preScanDirectory (DirPreScan preScan, IFile[] childs, XferListener xferListener)
             throws Exception
     {
-        HashMap<String,DirPreScan> subScan = new HashMap<String,DirPreScan> ();
+        HashMap<String,DirPreScan> subScan = new HashMap<> ();
         for (IFile child : childs) {
             String name = child.getName ();
             preScan.total += name.length () + DIRENTRYOVERHEAD;
@@ -340,9 +342,10 @@ public class FileUtils {
         // wait here as long as we are paused
         Object pauseLock = xferListener.paused ();
         if (pauseLock != null) {
+            //noinspection SynchronizationOnLocalVariableOrMethodParameter
             synchronized (pauseLock) {
                 while (xferListener.paused () != null) {
-                    try { pauseLock.wait (); } catch (InterruptedException ie) { }
+                    try { pauseLock.wait (); } catch (InterruptedException ignored) { }
                 }
             }
         }

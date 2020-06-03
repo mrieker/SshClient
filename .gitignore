@@ -1,8 +1,9 @@
 *~
 .gradle
-.idea/workspace.xml
+.idea
 local.properties
 app/app-release.apk
 app/app-aligned.apk
 app/build/
+app/release/
 build/

@@ -63,8 +63,9 @@ public class AsyncFileTasks {
         void endOfFile ();
     }
 
-    private final static Object[] zeroObjectArray = new Object[0];
-    private final static Void[]   zeroVoidArray   = new Void[0];
+    private final static Object[]   zeroObjectArray   = new Object[0];
+    private final static Selected[] zeroSelectedArray = new Selected[0];
+    private final static Void[]     zeroVoidArray     = new Void[0];
 
     /**
      * Start copying/moving a list of files.
@@ -81,7 +82,7 @@ public class AsyncFileTasks {
             ICopyMoveDelCB callbacks)
     {
         CopyMoveFilesThread cmft = new CopyMoveFilesThread ();
-        cmft.selecteds = selecteds.toArray (new Selected[selecteds.size()]);
+        cmft.selecteds = selecteds.toArray (zeroSelectedArray);
         cmft.moveMode  = moveMode;
         cmft.preScan   = preScan;
         cmft.setCallbacks (callbacks);
@@ -139,7 +140,7 @@ public class AsyncFileTasks {
             ICopyMoveDelCB callbacks)
     {
         DeleteFilesThread dft = new DeleteFilesThread ();
-        dft.selecteds = selecteds.toArray (new Selected[selecteds.size()]);
+        dft.selecteds = selecteds.toArray (zeroSelectedArray);
         dft.setCallbacks (callbacks);
         dft.execute (zeroVoidArray);
         return dft;
@@ -247,7 +248,7 @@ public class AsyncFileTasks {
             publishProgress (zeroObjectArray);
             synchronized (ppWaitLock) {
                 while (overwriteAns == OA_NOAN) {
-                    try { ppWaitLock.wait (); } catch (InterruptedException ie) { }
+                    try { ppWaitLock.wait (); } catch (InterruptedException ignored) { }
                 }
             }
         }
@@ -343,7 +344,7 @@ public class AsyncFileTasks {
             publishProgress (zeroObjectArray);
             synchronized (ppWaitLock) {
                 while (exceptionPending) {
-                    try { ppWaitLock.wait (); } catch (InterruptedException ie) { }
+                    try { ppWaitLock.wait (); } catch (InterruptedException ignored) { }
                 }
                 e = exceptionExceptn;
             }
@@ -383,6 +384,7 @@ public class AsyncFileTasks {
                      * to the GUI thread and completed by the async thread.
                      */
                     completionsBeg = lastPosted;
+                    //noinspection StatementWithEmptyBody
                     for (entry = completionsBeg; (entry != null) && entry.completed; entry = entry.popToEntry) { }
                     completionsEnd = entry;
 
@@ -503,7 +505,7 @@ public class AsyncFileTasks {
          * Transfers-in-progress stack entries.
          * Transfers will stack as we nest through the directory tree.
          */
-        private abstract class StackEntry {
+        private static abstract class StackEntry {
             public StackEntry popToEntry;  // next outer entry
             public StackEntry nextNotif;   // next notification to output
             public boolean notified;       // GUI has been notified about this file

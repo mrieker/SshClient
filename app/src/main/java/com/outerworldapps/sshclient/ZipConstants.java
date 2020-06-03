@@ -17,12 +17,13 @@
 
 package com.outerworldapps.sshclient;
 
+@SuppressWarnings("unused")
 interface ZipConstants {
 
-    public static final long LOCSIG = 0x4034b50, EXTSIG = 0x8074b50,
+    long LOCSIG = 0x4034b50, EXTSIG = 0x8074b50,
             CENSIG = 0x2014b50, ENDSIG = 0x6054b50;
 
-    public static final int LOCHDR = 30, EXTHDR = 16, CENHDR = 46, ENDHDR = 22,
+    int LOCHDR = 30, EXTHDR = 16, CENHDR = 46, ENDHDR = 22,
             LOCVER = 4, LOCFLG = 6, LOCHOW = 8, LOCTIM = 10, LOCCRC = 14,
             LOCSIZ = 18, LOCLEN = 22, LOCNAM = 26, LOCEXT = 28, EXTCRC = 4,
             EXTSIZ = 8, EXTLEN = 12, CENVEM = 4, CENVER = 6, CENFLG = 8,

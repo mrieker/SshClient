@@ -109,6 +109,7 @@ public abstract class DetachableAsyncTask<Params,Progress,Result> implements Han
      * doInBackground() calls this to publish progress which
      * calls onProgressUpdate() in GUI thread when attached.
      */
+    @SuppressWarnings("SameParameterValue")
     protected final void publishProgress (Progress[] values)
     {
         synchronized (sendLock) {

@@ -25,7 +25,7 @@
 package com.outerworldapps.sshclient;
 
 
-import android.content.pm.ActivityInfo;
+import android.annotation.SuppressLint;
 import android.graphics.Typeface;
 import android.widget.TextView;
 
@@ -34,6 +34,7 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.util.Enumeration;
 
+@SuppressLint("ViewConstructor")
 public class NetworkInterfacesView extends TextView {
 
     private SshClient sshClient;
@@ -54,26 +55,32 @@ public class NetworkInterfacesView extends TextView {
             Enumeration<NetworkInterface> nifaceit = NetworkInterface.getNetworkInterfaces ();
             while (nifaceit.hasMoreElements ()) {
                 NetworkInterface niface = nifaceit.nextElement ();
-                String name = niface.getName () + ": " + niface.getDisplayName ();
+                StringBuilder namesb = new StringBuilder ();
+                namesb.append (niface.getName ());
+                namesb.append (": ");
+                namesb.append (niface.getDisplayName ());
                 Class<? extends NetworkInterface> niclass = niface.getClass ();
                 try {
+                    @SuppressWarnings("JavaReflectionMemberAccess")
                     Method ghwa = niclass.getMethod ("getHardwareAddress");
                     byte[] hwabin = (byte[]) ghwa.invoke (niface);
                     if (hwabin != null) {
-                        name += " hw ";
+                        namesb.append (" hw ");
+                        boolean first = true;
                         for (byte hwabyte : hwabin) {
-                            if (!name.endsWith (" ")) name += ":";
-                            name += Integer.toHexString ((hwabyte & 0xFF) | 0x100).substring (1);
+                            if (!first) namesb.append (':');
+                            namesb.append (Integer.toHexString ((hwabyte & 0xFF) | 0x100).substring (1));
+                            first = false;
                         }
                     }
-                } catch (NoSuchMethodException nsme) {
+                } catch (NoSuchMethodException ignored) {
                 }
-                name += "\n";
+                namesb.append ('\n');
                 Enumeration<InetAddress> ipaddrit = niface.getInetAddresses ();
                 while (ipaddrit.hasMoreElements ()) {
-                    if (name != null) {
-                        append (name);
-                        name = null;
+                    if (namesb != null) {
+                        append (namesb);
+                        namesb = null;
                     }
                     InetAddress ipaddr = ipaddrit.nextElement ();
                     append ("  " + ipaddr.getHostAddress () + "\n");
@@ -83,8 +90,6 @@ public class NetworkInterfacesView extends TextView {
             append ("\n" + e.toString ());
         }
 
-        // display the menu always in portrait orientation
-        sshClient.setRequestedOrientation (ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         sshClient.setContentView (this);
 
         // set up method to be called if this screen is back-buttoned to

@@ -22,7 +22,6 @@ package com.jcraft.jsch;
 
 import java.io.IOException;
 import java.net.ServerSocket;
-import java.util.LinkedList;
 
 /**
  * Direct access to a TCP/IP tunnel via send calls
@@ -135,7 +134,7 @@ public class DirectTCPIPTunnel extends Channel {
     public void disconnect ()
     {
         super.disconnect ();
-        try { serverSocket.close (); } catch (IOException ioe) { }
+        try { serverSocket.close (); } catch (IOException ignored) { }
         serverSocket = null;
     }
 
@@ -178,7 +177,6 @@ public class DirectTCPIPTunnel extends Channel {
     // host sent us some normal data
     @Override  // Channel
     void write (byte[] data, int offset, int length)
-            throws IOException
     {
         receiver.gotData (data, offset, length);
     }
@@ -186,7 +184,6 @@ public class DirectTCPIPTunnel extends Channel {
     // host sent us some extended data
     @Override  // Channel
     void write_ext (byte[] data, int offset, int length)
-            throws IOException
     {
         receiver.gotExtData (data, offset, length);
     }

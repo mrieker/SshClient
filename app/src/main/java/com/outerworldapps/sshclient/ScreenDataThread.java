@@ -88,7 +88,7 @@ public class ScreenDataThread extends Thread {
     // GUIDetach as it will be called on detach so they
     // can remove any GUI references at that time.
     //TODO move this to JSessionService
-    public HashMap<String,Object> detstate = new HashMap<String,Object> ();
+    public HashMap<String,Object> detstate = new HashMap<> ();
 
     /**
      * If not already in shell mode, start it going.
@@ -123,8 +123,8 @@ public class ScreenDataThread extends Thread {
 
                     // disconnect any open channel
                     // should be sufficient to get its input.read() to terminate
-                    try { output.close       (); } catch (Exception e) { }
-                    try { channel.disconnect (); } catch (Exception e) { }
+                    try { output.close       (); } catch (Exception ignored) { }
+                    try { channel.disconnect (); } catch (Exception ignored) { }
                     output  = null;
                     channel = null;
 
@@ -132,7 +132,7 @@ public class ScreenDataThread extends Thread {
                     if (!enabled) break;
 
                     // wait for it to see the terminate flag
-                    try { wait (); } catch (InterruptedException ie) { }
+                    try { wait (); } catch (InterruptedException ignored) { }
                 }
             }
 
@@ -140,7 +140,7 @@ public class ScreenDataThread extends Thread {
             while (true) try {
                 join ();
                 break;
-            } catch (InterruptedException ie) { }
+            } catch (InterruptedException ignored) { }
         }
     }
 
@@ -225,16 +225,19 @@ public class ScreenDataThread extends Thread {
             // get everything closed up
             // then wait to be re-enabled or terminated
             synchronized (this) {
-                try { input.close        (); } catch (Exception e) { }
-                try { output.close       (); } catch (Exception e) { }
-                try { channel.disconnect (); } catch (Exception e) { }
+                try {
+                    //noinspection ConstantConditions
+                    input.close ();
+                } catch (Exception ignored) { }
+                try { output.close       (); } catch (Exception ignored) { }
+                try { channel.disconnect (); } catch (Exception ignored) { }
                 output  = null;
                 channel = null;
                 enabled = false;
                 notifyAll ();
 
                 while (!enabled && !terminated) {
-                    try { wait (); } catch (InterruptedException ie) { }
+                    try { wait (); } catch (InterruptedException ignored) { }
                 }
             }
         } while (!terminated);

@@ -141,7 +141,7 @@ public class LocalKeyPairMenu {
         int i = wild.indexOf ('*');
         String prefix = wild.substring (0, i);
         String suffix = wild.substring (++ i);
-        TreeMap<String,String> matches = new TreeMap<String,String> ();
+        TreeMap<String,String> matches = new TreeMap<> ();
         for (i = 0; i < files.length; i ++) {
             String prvkey = files[i].getName ();
             if (prvkey.startsWith (prefix) && prvkey.endsWith (suffix)) {
@@ -221,20 +221,21 @@ public class LocalKeyPairMenu {
         });
         llv.addView (xmi);
 
-        Button xmx = sshclient.MyButton ();
-        xmx.setText ("copy public key to external clipboard");
-        xmx.setOnClickListener (new View.OnClickListener () {
-            public void onClick (View v)
-            {
-                currentMenuDialog.dismiss ();
-                String pk = SendEncryptedKeyFileToClipboard (publickeyfile.getPath ());
-                if (pk != null) {
-                    ClipboardManager cbm = (ClipboardManager)sshclient.getSystemService (Context.CLIPBOARD_SERVICE);
-                    cbm.setText (pk);
+        final ClipboardManager cbm = (ClipboardManager)sshclient.getSystemService (Context.CLIPBOARD_SERVICE);
+        if (cbm != null) {
+            Button xmx = sshclient.MyButton ();
+            xmx.setText ("copy public key to external clipboard");
+            xmx.setOnClickListener (new View.OnClickListener () {
+                public void onClick (View v) {
+                    currentMenuDialog.dismiss ();
+                    String pk = SendEncryptedKeyFileToClipboard (publickeyfile.getPath ());
+                    if (pk != null) {
+                        cbm.setText (pk);
+                    }
                 }
-            }
-        });
-        llv.addView (xmx);
+            });
+            llv.addView (xmx);
+        }
 
         /*
          * Display a button to copy the private key to the clipboard.
@@ -439,20 +440,21 @@ public class LocalKeyPairMenu {
         });
         llv.addView (pairint);
 
-        final Button pairext = sshclient.MyButton ();
-        pairext.setText ("Load from external clipboard");
-        pairext.setOnClickListener (new View.OnClickListener () {
-            @Override
-            public void onClick (View v)
-            {
-                ClipboardManager cbm = (ClipboardManager)sshclient.getSystemService (Context.CLIPBOARD_SERVICE);
-                String keys = cbm.getText ().toString ().trim ();
-                cbm.setText ("");
-                pairtxt.setTag (keys);
-                pairtxt.setText (AbbreviateKey (keys));
-            }
-        });
-        llv.addView (pairext);
+        final ClipboardManager cbm = (ClipboardManager)sshclient.getSystemService (Context.CLIPBOARD_SERVICE);
+        if (cbm != null) {
+            final Button pairext = sshclient.MyButton ();
+            pairext.setText ("Load from external clipboard");
+            pairext.setOnClickListener (new View.OnClickListener () {
+                @Override
+                public void onClick (View v) {
+                    String keys = cbm.getText ().toString ().trim ();
+                    cbm.setText ("");
+                    pairtxt.setTag (keys);
+                    pairtxt.setText (AbbreviateKey (keys));
+                }
+            });
+            llv.addView (pairext);
+        }
 
         llv.addView (pairtxt);
 

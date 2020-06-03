@@ -24,11 +24,14 @@
 
 package com.outerworldapps.sshclient;
 
+import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.graphics.Color;
 import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -37,12 +40,13 @@ import android.widget.TextView;
 import com.jcraft.jsch.Session;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.PrintWriter;
 import java.util.HashMap;
 import java.util.LinkedList;
 
+@SuppressLint("SetTextI18n")
 public class TunnelMenu {
     public final static String TAG = "SshClient";
 
@@ -57,13 +61,11 @@ public class TunnelMenu {
     private HashMap<String,LinkedList<TunnelView>> tunnelLists;  // all tunnels
     LinkedList<TunnelView> tunnelList;          // tunnels for the current key
 
-    public String getTunnelFileName () { return tunnelFileName; }
-
     public TunnelMenu (SshClient sc)
     {
         sshclient = sc;
         tunnelFileName = new File (sshclient.getFilesDir (), "tunnels.enc").getAbsolutePath ();
-        tunnelLists = new HashMap<String,LinkedList<TunnelView>> ();
+        tunnelLists = new HashMap<> ();
     }
 
     /**
@@ -163,6 +165,10 @@ public class TunnelMenu {
      */
     private void addTunnelButton (final LinearLayout llv, final TunnelView tv)
     {
+        ViewParent parent = tv.getParent ();
+        if (parent instanceof ViewGroup) {
+            ((ViewGroup) parent).removeView (tv);
+        }
         final Button but = sshclient.MyButton ();
         but.setText (tv.getLabel ());
         but.setTextColor (tv.isOpen () ? colorOpen : colorClosed);
@@ -331,7 +337,7 @@ public class TunnelMenu {
          */
         tunnelList = tunnelLists.get (key);
         if (tunnelList == null) {
-            tunnelList = new LinkedList<TunnelView> ();
+            tunnelList = new LinkedList<> ();
             try {
                 BufferedReader br = new BufferedReader (sshclient.getMasterPassword ().EncryptedFileReader (tunnelFileName));
                 try {
@@ -346,7 +352,7 @@ public class TunnelMenu {
                 } finally {
                     br.close ();
                 }
-            } catch (FileNotFoundException fnfe) {
+            } catch (FileNotFoundException ignore) {
             } catch (Exception e) {
                 Log.e (TAG, "error reading " + tunnelFileName, e);
                 sshclient.ErrorAlert ("Error reading tunnels", SshClient.GetExMsg (e));
@@ -363,7 +369,7 @@ public class TunnelMenu {
     {
         MasterPassword mp = sshclient.getMasterPassword ();
         try {
-            PrintWriter pw = new PrintWriter (mp.EncryptedFileWriter (tunnelFileName + ".tmp"));
+            BufferedWriter pw = mp.EncryptedFileWriter (tunnelFileName + ".tmp");
             try {
                 try {
                     BufferedReader br = new BufferedReader (mp.EncryptedFileReader (tunnelFileName));
@@ -371,25 +377,26 @@ public class TunnelMenu {
                         String line;
                         while ((line = br.readLine ()) != null) {
                             if (!line.startsWith (prefix)) {
-                                pw.println (line);
+                                pw.write (line);
+                                pw.newLine ();
                             }
                         }
                     } finally {
                         br.close ();
                     }
-                } catch (FileNotFoundException fnfe) {
+                } catch (FileNotFoundException ignore) {
                 }
                 for (TunnelView tv : tunnelList) {
-                    pw.println (prefix + tv.serialize ());
+                    pw.write (prefix + tv.serialize ());
+                    pw.newLine ();
                 }
-                pw.flush ();
             } finally {
                 pw.close ();
             }
             MasterPassword.RenameTempToPerm (tunnelFileName);
         } catch (Exception e) {
-            Log.e (TAG, "error reading " + tunnelFileName, e);
-            sshclient.ErrorAlert ("Error reading tunnels", SshClient.GetExMsg (e));
+            Log.e (TAG, "error writing " + tunnelFileName, e);
+            sshclient.ErrorAlert ("Error writing tunnels", SshClient.GetExMsg (e));
         }
     }
 }

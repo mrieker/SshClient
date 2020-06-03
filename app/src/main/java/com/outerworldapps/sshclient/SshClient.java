@@ -25,6 +25,7 @@
 package com.outerworldapps.sshclient;
 
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
@@ -35,6 +36,7 @@ import android.graphics.Color;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.os.Bundle;
+import android.os.StrictMode;
 import android.text.ClipboardManager;
 import android.util.Log;
 import android.view.Menu;
@@ -54,6 +56,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 
+@SuppressLint("SetTextI18n")
 public class SshClient extends Activity {
     public static final String TAG = "SshClient";
 
@@ -71,13 +74,13 @@ public class SshClient extends Activity {
     private AlertDialog extendedMenuAD;
     private boolean masterPWGood;
     private FileExplorerView localFilesOnly;
-    private HashMap<CharSequence,Runnable> allMainMenuItems = new HashMap<CharSequence,Runnable> ();
+    private HashMap<CharSequence,Runnable> allMainMenuItems = new HashMap<> ();
     private HelpView helpView;
     private int lastSessionNumber;
     public  InternalLogView internalLogView;
     private JSessionService jSessionService;
-    private LinkedList<BackAction> backActionStack = new LinkedList<BackAction> ();
-    private LinkedList<MySession> allsessions = new LinkedList<MySession> ();
+    private LinkedList<BackAction> backActionStack = new LinkedList<> ();
+    private LinkedList<MySession> allsessions = new LinkedList<> ();
     private MasterPassword masterPassword;
     private Menu mainMenu;
     private MyHostKeyRepo myhostkeyrepo;          // holds list of known hosts
@@ -118,6 +121,16 @@ public class SshClient extends Activity {
     public void onCreate (Bundle savedInstanceState)
     {
         super.onCreate (savedInstanceState);
+
+        // allow network IO from GUI thread
+        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+        StrictMode.setThreadPolicy(policy);
+
+        // allow startIntent() to let other apps read our files
+        // https://stackoverflow.com/questions/38200282/android-os-fileuriexposedexception-file-storage-emulated-0-test-txt-exposed
+        // also allows links in the HelpView to work so they don't get FileUriExposedException
+        StrictMode.VmPolicy.Builder builder = new StrictMode.VmPolicy.Builder ();
+        StrictMode.setVmPolicy (builder.build ());
 
         /*
          * Bind to the JSessionService.
@@ -189,7 +202,7 @@ public class SshClient extends Activity {
                 {
                     SharedPreferences.Editor editr = prefs.edit ();
                     editr.putBoolean ("hasAgreed", true);
-                    editr.commit ();
+                    editr.apply ();
                     HasAgreed ();
                 }
             });
@@ -925,6 +938,7 @@ public class SshClient extends Activity {
     public TextView MyTextView ()
     {
         TextView v = new TextView (this);
+        v.setTextColor (Color.WHITE);
         v.setTextSize (UNIFORM_TEXT_SIZE);
         return v;
     }
@@ -970,18 +984,20 @@ public class SshClient extends Activity {
     /**
      * Make beep sound.
      */
-    public static void MakeBeepSound ()
+    public void MakeBeepSound ()
     {
-        try {
-            // requires VIBRATE permission
-            //Vibrator vib = (Vibrator)getSystemService (Activity.VIBRATOR_SERVICE);
-            //vib.vibrate (200);
+        if (!settings.dont_beep.GetValue ()) {
+            try {
+                // requires VIBRATE permission
+                //Vibrator vib = (Vibrator)getSystemService (Activity.VIBRATOR_SERVICE);
+                //vib.vibrate (200);
 
-            ToneGenerator tg = new ToneGenerator (AudioManager.STREAM_NOTIFICATION, 100);
-            tg.startTone (ToneGenerator.TONE_PROP_BEEP);
-        } catch (Exception e) {
-            // sometimes ToneGenerator throws RuntimeException: 'Init failed'
-            Log.w (TAG, "make beep sound error", e);
+                ToneGenerator tg = new ToneGenerator (AudioManager.STREAM_NOTIFICATION, 100);
+                tg.startTone (ToneGenerator.TONE_PROP_BEEP);
+            } catch (Exception e) {
+                // sometimes ToneGenerator throws RuntimeException: 'Init failed'
+                Log.w (TAG, "make beep sound error", e);
+            }
         }
     }
 
@@ -998,12 +1014,14 @@ public class SshClient extends Activity {
                 done.run (internalClipboard);
             }
         });
-        ab.setNeutralButton ("External", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton) {
-                ClipboardManager cbm = (ClipboardManager) getSystemService (Context.CLIPBOARD_SERVICE);
-                done.run (cbm.getText ().toString ());
-            }
-        });
+        final ClipboardManager cbm = (ClipboardManager) getSystemService (Context.CLIPBOARD_SERVICE);
+        if (cbm != null) {
+            ab.setNeutralButton ("External", new DialogInterface.OnClickListener () {
+                public void onClick (DialogInterface dialog, int whichButton) {
+                    done.run (cbm.getText ().toString ());
+                }
+            });
+        }
         ab.setNegativeButton ("Cancel", null);
         ab.show ();
     }
@@ -1038,13 +1056,15 @@ public class SshClient extends Activity {
         });
 
         // External button does the copy then deselects string
-        ab.setNeutralButton ("External", new DialogInterface.OnClickListener () {
-            public void onClick (DialogInterface dialog, int whichButton) {
-                ClipboardManager cbm = (ClipboardManager) getSystemService (Context.CLIPBOARD_SERVICE);
-                cbm.setText (str);
-                if (done != null) done.run ();
-            }
-        });
+        final ClipboardManager cbm = (ClipboardManager) getSystemService (Context.CLIPBOARD_SERVICE);
+        if (cbm != null) {
+            ab.setNeutralButton ("External", new DialogInterface.OnClickListener () {
+                public void onClick (DialogInterface dialog, int whichButton) {
+                    cbm.setText (str);
+                    if (done != null) done.run ();
+                }
+            });
+        }
 
         // Cancel button just leaves everything as is
         ab.setNegativeButton ("Cancel", null);

@@ -31,6 +31,7 @@ package com.outerworldapps.sshclient;
 
 
 import android.app.Notification;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
@@ -39,6 +40,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
@@ -48,9 +50,12 @@ import java.util.LinkedList;
 public class JSessionService extends Service {
     public final static String TAG = "SshClient";
 
+    private final static String APP_NAME = "SshClient";
+    private final static String CHANNEL_ID = "sessioncount";
+
     private Context clientctx;
     private final MyBinder myBinder = new MyBinder ();
-    private LinkedList<ScreenDataThread> screenDataThreads = new LinkedList<ScreenDataThread> ();
+    private LinkedList<ScreenDataThread> screenDataThreads = new LinkedList<> ();
     private long startTime;
     private Notification notification;
     private ServiceConnection servconn;
@@ -65,6 +70,7 @@ public class JSessionService extends Service {
     public void onCreate ()
     {
         Log.d (TAG, "JSessionService created");
+        createNotificationChannel ();
     }
 
     @Override
@@ -102,7 +108,7 @@ public class JSessionService extends Service {
     \****************************/
 
     public interface ConDiscon {
-        public void onConDiscon (JSessionService instance);
+        void onConDiscon (JSessionService instance);
     }
 
     /**
@@ -201,7 +207,7 @@ public class JSessionService extends Service {
             notification = createNotification (count);
             if (notification != null) {
                 NotificationManager nm = (NotificationManager) clientctx.getSystemService (Context.NOTIFICATION_SERVICE);
-                nm.notify ((int)startTime ^ 1962078453, notification);
+                if (nm != null) nm.notify ((int)startTime ^ 1962078453, notification);
             }
         }
 
@@ -219,23 +225,47 @@ public class JSessionService extends Service {
     private Notification createNotification (int count)
     {
         if (clientctx != null) {
-            String appName = clientctx.getString (R.string.app_name);
-            Notification note = new Notification (
-                    R.drawable.launch_image,
-                    appName + " sessions",
-                    startTime
-            );
+            Notification.Builder nb;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nb = new Notification.Builder (this, CHANNEL_ID);
+            } else {
+                nb = new Notification.Builder (this);
+            }
+            nb.setSmallIcon (R.drawable.launch_image);
+            nb.setTicker (APP_NAME + " sessions");
+            nb.setWhen (startTime);
 
             Intent ni = new Intent (clientctx, clientctx.getClass ());
             ni.setFlags (Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
             PendingIntent pi = PendingIntent.getActivity (clientctx, 0, ni, 0);
-            note.setLatestEventInfo (this, appName + " sessions", count + " session" + (count == 1 ? "" : "s") + " open", pi);
 
+            nb.setContentTitle (APP_NAME + " sessions");
+            nb.setContentText (count + " session" + (count == 1 ? "" : "s") + " open");
+            nb.setContentIntent (pi);
+
+            Notification note = nb.getNotification ();
             note.flags |= Notification.FLAG_FOREGROUND_SERVICE | Notification.FLAG_ONGOING_EVENT |
                     Notification.FLAG_ONLY_ALERT_ONCE;
-
             return note;
         }
         return null;
+    }
+
+    // https://developer.android.com/training/notify-user/build-notification
+    private void createNotificationChannel()
+    {
+        // Create the NotificationChannel, but only on API 26+ because
+        // the NotificationChannel class is new and not in the support library
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            CharSequence name = APP_NAME + " Sessions";
+            String description = "number of " + APP_NAME + " sessions open";
+            int importance = NotificationManager.IMPORTANCE_DEFAULT;
+            NotificationChannel channel = new NotificationChannel (CHANNEL_ID, name, importance);
+            channel.setDescription(description);
+            // Register the channel with the system; you can't change the importance
+            // or other notification behaviors after this
+            NotificationManager notificationManager = getSystemService(NotificationManager.class);
+            notificationManager.createNotificationChannel(channel);
+        }
     }
 }

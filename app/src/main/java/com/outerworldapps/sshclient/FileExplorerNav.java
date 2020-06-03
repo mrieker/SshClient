@@ -24,6 +24,7 @@
 
 package com.outerworldapps.sshclient;
 
+import android.annotation.SuppressLint;
 import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -59,6 +60,7 @@ import java.util.Locale;
 import java.util.Stack;
 import java.util.TreeMap;
 
+@SuppressLint({ "SetTextI18n", "ViewConstructor" })
 public class FileExplorerNav extends LinearLayout {
     public final static String TAG = "SshClient";
 
@@ -97,8 +99,8 @@ public class FileExplorerNav extends LinearLayout {
         hlpaint.setColor (hlcolor);
         hlpaint.setStyle (Paint.Style.FILL);
 
-        highlightedFiles = new HashSet<IFile> ();
-        knownReadables = new TreeMap<String,IFile> ();
+        highlightedFiles = new HashSet<> ();
+        knownReadables = new TreeMap<> ();
 
         domNameTV = sshclient.MyTextView ();
         domNameTV.setText ("  " + dom + "  ");
@@ -183,13 +185,13 @@ public class FileExplorerNav extends LinearLayout {
     /**
      * Add a directory that is most likely known to be readable
      * to the list of known readable directories.
-     * @param rd = some directory that is probably readable
-     * @return true: it (or one of its parents) was added
-     *        false: nothing was added
+     *  input rd = some directory that is probably readable
+     *  returns true: it (or one of its parents) was added
+     *         false: nothing was added
      */
-    public boolean addReadable (java.io.File rd)
+    public void addReadable (java.io.File rd)
     {
-        return addReadable (new FileIFile (rd));
+        addReadable (new FileIFile (rd));
     }
     public boolean addReadable (IFile rd)
     {
@@ -240,14 +242,6 @@ public class FileExplorerNav extends LinearLayout {
             it.remove ();
             filesTextView.checkHighlight (file);
         }
-    }
-
-    /**
-     * See if the given file is set to be highlighted in the listings
-     */
-    public boolean getFileHighlighted (IFile whatFile)
-    {
-        return highlightedFiles.contains (whatFile);
     }
 
     /**
@@ -400,7 +394,7 @@ public class FileExplorerNav extends LinearLayout {
                 if (!caseSens) wildcard = wildcard.toLowerCase ();
 
                 // use a linked list because we have no idea how many matches we will get
-                foundFiles = new LinkedList<IFile> ();
+                foundFiles = new LinkedList<> ();
 
                 // search starting with the current directory
                 searchTree (currentDir);
@@ -494,7 +488,7 @@ public class FileExplorerNav extends LinearLayout {
         // include a button for this directory at the end so they can refresh
         dirButtonRowLL.removeAllViews ();
         dirButtonRowLL.addView (domNameTV);
-        Stack<IFile> parentStack = new Stack<IFile> ();
+        Stack<IFile> parentStack = new Stack<> ();
         parentStack.push (null);
         IFile parentdir;
         for (parentdir = currentDir; parentdir != null; parentdir = parentdir.getParentFile ()) {
@@ -565,6 +559,7 @@ public class FileExplorerNav extends LinearLayout {
             super (sshclient);
         }
 
+        @SuppressLint("ClickableViewAccessibility")
         @Override
         public boolean onTouchEvent (@NonNull MotionEvent me)
         {
@@ -644,7 +639,7 @@ public class FileExplorerNav extends LinearLayout {
         public FilesTextView ()
         {
             super (sshclient);
-            dirContents = new ArrayList<ViewedFile> (1);
+            dirContents = new ArrayList<> (1);
             boxpaint = new Paint ();
             boxpaint.setStyle (Paint.Style.STROKE);
             textpaint = new Paint ();
@@ -672,7 +667,7 @@ public class FileExplorerNav extends LinearLayout {
         {
             dirNameAPWS = container;
 
-            ArrayList<ViewedFile> dc = new ArrayList<ViewedFile> (array.length);
+            ArrayList<ViewedFile> dc = new ArrayList<> (array.length);
 
             boolean inclHidden = sshclient.getSettings ().incl_hid.GetValue ();
             long largestFile = 0;
@@ -925,11 +920,11 @@ public class FileExplorerNav extends LinearLayout {
                 ArrayList<IFile> files = null;
                 synchronized (dcLock) {
                     if ((lastOneSeld | lastTwoSeld) >= 0) {
-                        int lo = (lastOneSeld < lastTwoSeld) ? lastOneSeld : lastTwoSeld;
+                        int lo = Math.min (lastOneSeld, lastTwoSeld);
                         int hi = lastOneSeld + lastTwoSeld - lo + 1;
                         if (hi > dirContents.size ()) hi = dirContents.size ();
                         if (hi > lo) {
-                            files = new ArrayList<IFile> (hi - lo);
+                            files = new ArrayList<> (hi - lo);
                             for (int i = lo; i < hi; i ++) {
                                 files.add (dirContents.get (i).file);
                             }
