@@ -26,7 +26,9 @@ package com.outerworldapps.sshclient;
 
 
 import android.net.Uri;
+import android.os.Environment;
 import android.support.annotation.NonNull;
+import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -42,17 +44,103 @@ public class FileIFile extends IFile {
     public final static String TAG = "SshClient";
 
     private File file;
+    private SshClient context;
     private String abspath;
+    private String[] dirwords;
 
-    public FileIFile (File f)
+    public FileIFile (@NonNull SshClient ctx, @NonNull File f)
     {
-        file = f;
-        abspath = FileUtils.stripDots (file.getAbsolutePath ());
+        context  = ctx;
+        file     = f;
+        abspath  = FileUtils.stripDots (file.getAbsolutePath ());
+        dirwords = makeDirWords (abspath);
     }
 
-    public boolean canRead () { return file.canRead (); }
+    // file is one of this app's directories
+    // or a parent of them all the way to root
+    public boolean isKnownReadable ()
+    {
+        if (abspath.equals ("/")) {
+            Log.w (TAG, "isKnownReadable*: root dir");
+        }
+        KnownReadable kr = getKnownReadablesRoot ();
+        for (String dirword : dirwords) {
+            kr = kr.childs.get (dirword);
+            if (kr == null) return false;
+        }
+        return true;
+    }
+
+    private KnownReadable getKnownReadablesRoot ()
+    {
+        KnownReadable kr = context.knownReadables;
+        if (kr == null) {
+            kr = new KnownReadable ();
+            kr.name = "";
+
+            addReadable (kr, context.getCacheDir ());
+            addReadable (kr, context.getExternalCacheDir ());
+            addReadable (kr, context.getFilesDir ());
+            addReadable (kr, context.getExternalFilesDir (null));
+
+            addReadable (kr, Environment.getDataDirectory ());
+            addReadable (kr, Environment.getDownloadCacheDirectory ());
+            addReadable (kr, Environment.getExternalStorageDirectory ());
+            addReadable (kr, Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_ALARMS));
+            addReadable (kr, Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_DCIM));
+            addReadable (kr, Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_DOWNLOADS));
+            addReadable (kr, Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_MOVIES));
+            addReadable (kr, Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_MUSIC));
+            addReadable (kr, Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_NOTIFICATIONS));
+            addReadable (kr, Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_PICTURES));
+            addReadable (kr, Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_PODCASTS));
+            addReadable (kr, Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_RINGTONES));
+            addReadable (kr, Environment.getRootDirectory ());
+
+            kr.log ("getKnownReadablesRoot*: ");
+
+            context.knownReadables = kr;
+        }
+        return kr;
+    }
+
+    private static void addReadable (KnownReadable kr, File dir)
+    {
+        if (dir != null) {
+            addReadable (kr, FileUtils.stripDots (dir.getAbsolutePath ()));
+            try {
+                addReadable (kr, FileUtils.stripDots (dir.getCanonicalPath ()));
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private static void addReadable (KnownReadable kr, String path)
+    {
+        String[] dirwords = makeDirWords (path);
+        for (String dirword : dirwords) {
+            KnownReadable childkr = kr.childs.get (dirword);
+            if (childkr == null) {
+                childkr = new KnownReadable ();
+                childkr.name = dirword;
+                kr.childs.put (dirword, childkr);
+            }
+            kr = childkr;
+        }
+    }
+
+    private static String[] makeDirWords (String abspath)
+    {
+        return abspath.equals ("/") ? new String[0] : abspath.substring (1).split ("/");
+    }
+
+    /***********\
+     *  IFile  *
+    \***********/
+
+    public boolean canRead () { return isKnownReadable () || file.canRead (); }
     public boolean canWrite () { return file.canWrite (); }
-    public boolean exists () { return file.exists (); }
+    public boolean exists () { return isKnownReadable () || file.exists (); }
     public Uri getUri () { return Uri.fromFile (file); }
 
     public long length () throws IOException
@@ -110,7 +198,7 @@ public class FileIFile extends IFile {
 
     public boolean isDirectory ()
     {
-        return file.isDirectory ();
+        return isKnownReadable () || file.isDirectory ();
     }
 
     public boolean isFile ()
@@ -142,26 +230,43 @@ public class FileIFile extends IFile {
 
     public IFile[] listFiles () throws IOException
     {
+        IFile[] ifiles;
         File[] files = file.listFiles ();
-        if (files == null) throw new FileListFilesException ();
-        FileIFile[] fileifiles = new FileIFile[files.length];
-        for (int i = files.length; -- i >= 0;) {
-            fileifiles[i] = new FileIFile (files[i]);
+        if (files != null) {
+            ifiles = new IFile[files.length];
+            for (int i = files.length; -- i >= 0;) {
+                ifiles[i] = new FileIFile (context, files[i]);
+            }
+        } else {
+
+            // this file, presumably a directory, is not scannable
+            // but if it is along the path of known readable directories,
+            // make up contents based on those known readables
+            KnownReadable kr = getKnownReadablesRoot ();
+            for (String dirword : dirwords) {
+                kr = kr.childs.get (dirword);
+                if (kr == null) throw new FileListFilesException ();
+            }
+            ifiles = new IFile[kr.childs.size()];
+            int i = 0;
+            for (String child : kr.childs.keySet ()) {
+                ifiles[i++] = new FileIFile (context, new File (file, child));
+            }
         }
-        return fileifiles;
+        return ifiles;
     }
 
     public IFile getParentFile ()
     {
         File parentFile = file.getParentFile ();
         if (parentFile == null) return null;
-        return new FileIFile (parentFile);
+        return new FileIFile (context, parentFile);
     }
 
     public IFile getChildFile (String name)
     {
-        if (name.startsWith ("/")) return new FileIFile (new File (name));
-        return new FileIFile (new File (file, name));
+        if (name.startsWith ("/")) return new FileIFile (context, new File (name));
+        return new FileIFile (context, new File (file, name));
     }
 
     public InputStream getInputStream () throws IOException

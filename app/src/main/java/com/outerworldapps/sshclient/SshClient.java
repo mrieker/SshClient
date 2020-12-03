@@ -86,6 +86,7 @@ public class SshClient extends Activity {
     private MyHostKeyRepo myhostkeyrepo;          // holds list of known hosts
     private MySession currentsession;             // session currently selected by user
     private NetworkInterfacesView networkInterfacesView;
+    public  KnownReadable knownReadables;
     private SavedLogins savedlogins;              // list of username@hostname[:portnumber] we have connected to
     private Settings settings;                    // user settable settings
     private String knownhostsfilename;            // name of file that holds known remote hosts (hosts we have the signature for)
@@ -400,6 +401,7 @@ public class SshClient extends Activity {
     /**
      * Pop back to top element on back action stack.
      */
+    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
     private boolean popBackAction ()
     {
         // find latest screen that sets a session as current
@@ -746,8 +748,6 @@ public class SshClient extends Activity {
             // make two local file navigator screens
             FileExplorerNav lcl1 = new MySession.MyFENav (this, "local-1");
             FileExplorerNav lcl2 = new MySession.MyFENav (this, "local-2");
-            lcl1.addReadables (this);
-            lcl2.addReadables (this);
 
             // wrap them in a file viewer screen
             localFilesOnly = new MySession.MyFEView (this);
@@ -974,11 +974,11 @@ public class SshClient extends Activity {
     /**
      * Get directory on local filesystem for temp files.
      */
-    public FileIFile GetLocalDir ()
+    public IFile GetLocalDir ()
     {
         File lcldir = getExternalCacheDir ();
         if (lcldir == null) lcldir = getCacheDir ();
-        return new FileIFile (lcldir);
+        return new FileIFile (this, lcldir);
     }
 
     /**

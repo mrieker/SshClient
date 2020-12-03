@@ -1,0 +1,19 @@
+Categories:
+  - Development
+License: GPL-2.0-only
+WebSite: https://www.outerworldapps.com
+SourceCode: https://github.com/mrieker/SshClient
+
+RepoType: git
+Repo: https://github.com/mrieker/SshClient.git
+
+Builds:
+  - versionName: '2.7'
+    versionCode: 20700
+    commit: v2.7
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version v%v
+UpdateCheckMode: Tags

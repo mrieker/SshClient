@@ -66,6 +66,7 @@ import java.io.UnsupportedEncodingException;
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
 
+@SuppressWarnings("CharsetObjectCanBeUsed")
 @SuppressLint({ "SetTextI18n", "ViewConstructor" })
 public class VNCView extends KeyboardableView implements SshClient.HasMainMenu {
     private final static String TAG = "SshClient";

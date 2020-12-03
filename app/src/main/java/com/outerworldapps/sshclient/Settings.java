@@ -31,6 +31,7 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.support.annotation.NonNull;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
@@ -172,7 +173,7 @@ public class Settings {
                     v.UpdateFromView ();
                     editr.putString (v.name, v.toString ());
                 }
-                editr.commit ();
+                editr.apply ();
                 ApplySettings ();
                 sshclient.onBackPressed ();
             }
@@ -267,6 +268,7 @@ public class Settings {
         public abstract void FromString (String s);
 
         // convert setting to string that gets written to preferences file
+        @NonNull
         @Override
         public abstract String toString ();
 
@@ -294,6 +296,7 @@ public class Settings {
         {
             value = Boolean.parseBoolean (s);
         }
+        @NonNull
         @Override
         public String toString ()
         {
@@ -344,6 +347,7 @@ public class Settings {
         {
             value = Integer.parseInt (s);
         }
+        @NonNull
         @Override
         public String toString ()
         {
@@ -433,6 +437,7 @@ public class Settings {
         {
             value = Integer.parseInt (s);
         }
+        @NonNull
         @Override
         public String toString ()
         {
@@ -510,6 +515,7 @@ public class Settings {
         {
             value = Integer.parseInt (s);
         }
+        @NonNull
         @Override
         public String toString ()
         {
@@ -598,6 +604,7 @@ public class Settings {
         {
             value = Integer.parseInt (s);
         }
+        @NonNull
         @Override
         public String toString ()
         {
@@ -620,7 +627,7 @@ public class Settings {
             value = val;
             SharedPreferences.Editor editr = prefs.edit ();
             editr.putString (name, Integer.toString (value));
-            editr.commit ();
+            editr.apply ();
             ApplySettings ();
         }
 
@@ -655,7 +662,7 @@ public class Settings {
         {
             int butid = radgrp.getCheckedRadioButtonId ();
             if (butid >= 0) {
-                RadioButton radbut = (RadioButton)radgrp.findViewById (butid);
+                RadioButton radbut = radgrp.findViewById (butid);
                 String key = radbut.getText ().toString ();
                 for (int i = keys.length; -- i >= 0;) {
                     if (key.equals (keys[i])) {

@@ -58,7 +58,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Stack;
-import java.util.TreeMap;
 
 @SuppressLint({ "SetTextI18n", "ViewConstructor" })
 public class FileExplorerNav extends LinearLayout {
@@ -78,7 +77,6 @@ public class FileExplorerNav extends LinearLayout {
     private Paint hlpaint;
     private SshClient sshclient;
     private String domain;
-    private TreeMap<String,IFile> knownReadables;
     private TextView domNameTV;
     private View.OnClickListener dirButtonListener;
 
@@ -100,7 +98,6 @@ public class FileExplorerNav extends LinearLayout {
         hlpaint.setStyle (Paint.Style.FILL);
 
         highlightedFiles = new HashSet<> ();
-        knownReadables = new TreeMap<> ();
 
         domNameTV = sshclient.MyTextView ();
         domNameTV.setText ("  " + dom + "  ");
@@ -152,72 +149,6 @@ public class FileExplorerNav extends LinearLayout {
     public FileExplorerView getFileExplorerView ()
     {
         return explorerView;
-    }
-
-    /**
-     * Add all the directories the given sshclient should have access to
-     * as known readables so the user should always be able to navigate
-     * back to them, even if some intermediate directory isn't readable.
-     * @param act = sshclient to scan
-     */
-    public void addReadables (Context act)
-    {
-        addReadable (act.getCacheDir ());
-        addReadable (act.getExternalCacheDir ());
-        addReadable (act.getFilesDir ());
-        addReadable (act.getExternalFilesDir (null));
-
-        addReadable (Environment.getDataDirectory ());
-        addReadable (Environment.getDownloadCacheDirectory ());
-        addReadable (Environment.getExternalStorageDirectory ());
-        addReadable (Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_ALARMS));
-        addReadable (Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_DCIM));
-        addReadable (Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_DOWNLOADS));
-        addReadable (Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_MOVIES));
-        addReadable (Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_MUSIC));
-        addReadable (Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_NOTIFICATIONS));
-        addReadable (Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_PICTURES));
-        addReadable (Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_PODCASTS));
-        addReadable (Environment.getExternalStoragePublicDirectory (Environment.DIRECTORY_RINGTONES));
-        addReadable (Environment.getRootDirectory ());
-    }
-
-    /**
-     * Add a directory that is most likely known to be readable
-     * to the list of known readable directories.
-     *  input rd = some directory that is probably readable
-     *  returns true: it (or one of its parents) was added
-     *         false: nothing was added
-     */
-    public void addReadable (java.io.File rd)
-    {
-        addReadable (new FileIFile (rd));
-    }
-    public boolean addReadable (IFile rd)
-    {
-        // make sure we are given a readable directory
-        try {
-            if (!rd.exists () || !rd.isDirectory () || !rd.canRead ()) {
-                return false;
-            }
-        } catch (IOException ioe) {
-            return false;
-        }
-
-        // if the direct parent is readable, add that instead
-        // as the user will be able to navigate back to the
-        // given directory from the parent
-        IFile parent = rd.getParentFile ();
-        if ((parent == null) || !addReadable (parent)) {
-
-            // can't read direct parent, so the user can't navigate
-            // from the parent to this directory, so add this directory
-            // to the list of known readables.  using a tree keying
-            // off absolute path will discard duplicates.
-            String path = rd.getAPWithSlashNX ();
-            knownReadables.put (path, rd);
-        }
-        return true;
     }
 
     /*******************\
@@ -439,14 +370,6 @@ public class FileExplorerNav extends LinearLayout {
                         // if directory is readable, scan it
                         if (file.canRead ()) {
                             searchTree (file);
-                        } else {
-                            // not readable, scan any known readable directories under it
-                            String unreadableDirName = file.getAPWithSlash ();
-                            for (String absPath : knownReadables.keySet ()) {
-                                if (absPath.startsWith (unreadableDirName)) {
-                                    searchTree (knownReadables.get (absPath));
-                                }
-                            }
                         }
                     }
                 }
@@ -500,11 +423,6 @@ public class FileExplorerNav extends LinearLayout {
             boolean writable = false;
             try { readable = parentdir.canRead  (); } catch (IOException ioe) { Log.d (TAG, "canRead() error " + parentdir.getAbsolutePath (), ioe); }
             try { writable = parentdir.canWrite (); } catch (IOException ioe) { Log.d (TAG, "canWrite() error " + parentdir.getAbsolutePath (), ioe); }
-
-            // if this directory is known to be readable, remember it so user can navigate back
-            if (readable) {
-                addReadable (currentDir);
-            }
 
             // see if the directory is readable.  if so, make a button for it.
             // always make a button for current dir, grayed out if it isn't
@@ -685,23 +603,6 @@ public class FileExplorerNav extends LinearLayout {
                             if (largestFile < aFileLength) largestFile = aFileLength;
                         } catch (IOException ioe) {
                             // eg, dead softlink
-                        }
-
-                        // see if it's an unreadable directory
-                        if (aFile.isDirectory () && !aFile.canRead ()) {
-                            String unreadableDirName = aFile.getAPWithSlash ();
-
-                            // if so, see if we have any known readable directories under it
-                            for (String absPath : knownReadables.keySet ()) {
-                                if (absPath.startsWith (unreadableDirName)) {
-
-                                    // for each found, list it as a separate entry the user can click on
-                                    vf = new ViewedFile ();
-                                    vf.file = knownReadables.get (absPath);
-                                    dc.add (vf);
-                                    if (largestFile < vf.file.length ()) largestFile = vf.file.length ();
-                                }
-                            }
                         }
                     }
                 } catch (IOException ioe) {

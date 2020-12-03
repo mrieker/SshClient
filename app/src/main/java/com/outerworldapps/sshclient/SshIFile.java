@@ -39,7 +39,6 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.concurrent.atomic.AtomicLong;
@@ -59,7 +58,7 @@ public class SshIFile extends IFile {
 
     private static AtomicLong lastprobe = new AtomicLong (0);
     private static CleanupThread cleanupThread;
-    private static final HashMap<Session,LinkedList<ChanEnt>> channelPool = new HashMap<> ();
+    private static final NNHashMap<Session,LinkedList<ChanEnt>> channelPool = new NNHashMap<> ();
 
     private GidUid giduid;         // holds the gid/uid of the user@host:port connected to
     private Session session;       // TCP connection that is logged in
@@ -607,7 +606,7 @@ public class SshIFile extends IFile {
             if (!channelPool.containsKey (session)) {
                 channelPool.put (session, new LinkedList<ChanEnt> ());
             }
-            LinkedList<ChanEnt> channelList = channelPool.get (session);
+            LinkedList<ChanEnt> channelList = channelPool.nnget (session);
             if (channelList.isEmpty ()) {
                 try {
                     chanEnt = new ChanEnt ();
@@ -634,7 +633,7 @@ public class SshIFile extends IFile {
                 channelPool.put (session, new LinkedList<ChanEnt> ());
             }
             chanEnt.idle = 0;
-            channelPool.get (session).addLast (chanEnt);
+            channelPool.nnget (session).addLast (chanEnt);
             if (cleanupThread == null) {
                 cleanupThread = new CleanupThread ();
                 cleanupThread.start ();
@@ -657,7 +656,7 @@ public class SshIFile extends IFile {
                     synchronized (channelPool) {
                         for (Iterator<Session> its = channelPool.keySet ().iterator (); its.hasNext ();) {
                             Session session = its.next ();
-                            for (Iterator<ChanEnt> itc = channelPool.get (session).iterator (); itc.hasNext ();) {
+                            for (Iterator<ChanEnt> itc = channelPool.nnget (session).iterator (); itc.hasNext ();) {
                                 ChanEnt chanEnt = itc.next ();
                                 if (++ chanEnt.idle > 1) {
                                     chanEnt.chan.disconnect ();

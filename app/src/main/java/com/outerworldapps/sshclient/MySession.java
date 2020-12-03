@@ -110,8 +110,8 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
 
         screendatathread = sdt;
         screentextbuffer = sdt.screenTextBuffer;
-        screenMode    = (Integer) sdt.detstate.get ("screenMode");
-        sessionNumber = (Integer) sdt.detstate.get ("sessionNumber");
+        screenMode    = (Integer) sdt.detstate.nnget ("screenMode");
+        sessionNumber = (Integer) sdt.detstate.nnget ("sessionNumber");
 
         CommonConstruction ();
 
@@ -721,9 +721,7 @@ public class MySession extends LinearLayout implements SshClient.HasMainMenu {
          * Also get location of cache (temp) directory on preferably the SD card.
          */
         FileExplorerNav lclnav = new MyFENav (sshclient, "local");
-        lclnav.addReadables (sshclient);
-        FileIFile tmpdir = sshclient.GetLocalDir ();
-        lclnav.addReadable (tmpdir);
+        IFile tmpdir = sshclient.GetLocalDir ();
 
         /*
          * Create a file explorer view with both those navigators.

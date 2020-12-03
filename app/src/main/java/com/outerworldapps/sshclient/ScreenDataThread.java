@@ -58,7 +58,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.Locale;
 
 public class ScreenDataThread extends Thread {
@@ -88,7 +87,7 @@ public class ScreenDataThread extends Thread {
     // GUIDetach as it will be called on detach so they
     // can remove any GUI references at that time.
     //TODO move this to JSessionService
-    public HashMap<String,Object> detstate = new HashMap<> ();
+    public NNHashMap<String,Object> detstate = new NNHashMap<> ();
 
     /**
      * If not already in shell mode, start it going.
@@ -161,15 +160,16 @@ public class ScreenDataThread extends Thread {
     }
 
     //TODO move this to JSessionService
-    private static void checkForGUIDetaches (HashMap map, String indent)
+    private static void checkForGUIDetaches (NNHashMap<String,Object> map, String indent)
     {
-        for (Object key : map.keySet ()) {
-            Object obj = map.get (key);
-            if (obj instanceof HashMap) {
-                Log.d (TAG, "ScreenDataThread.detach: " + indent + key.toString () + "=(" + obj.getClass ().getSimpleName () + ")...");
-                checkForGUIDetaches ((HashMap)obj, indent + "  ");
+        for (String key : map.keySet ()) {
+            Object obj = map.nnget (key);
+            if (obj instanceof NNHashMap) {
+                Log.d (TAG, "ScreenDataThread.detach: " + indent + key + "=(" + obj.getClass ().getSimpleName () + ")...");
+                //noinspection unchecked
+                checkForGUIDetaches ((NNHashMap<String,Object>) obj, indent + "  ");
             } else {
-                Log.d (TAG, "ScreenDataThread.detach: " + indent + key.toString () + "=(" + obj.getClass ().getSimpleName () + ")" + obj.toString ());
+                Log.d (TAG, "ScreenDataThread.detach: " + indent + key + "=(" + obj.getClass ().getSimpleName () + ")" + obj.toString ());
                 if (obj instanceof GUIDetach) {
                     Log.d (TAG, "ScreenDataThread.detach: " + indent + "- GUIDetach");
                     ((GUIDetach)obj).guiDetach ();

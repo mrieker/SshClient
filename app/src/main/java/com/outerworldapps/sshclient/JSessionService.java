@@ -231,7 +231,14 @@ public class JSessionService extends Service {
             } else {
                 nb = new Notification.Builder (this);
             }
-            nb.setSmallIcon (R.drawable.launch_image);
+            if ((Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)) {
+                // use a full-color icon when android can handle full-color icons for notifications
+                nb.setSmallIcon (R.drawable.small_icon);
+            } else {
+                // black->full transparent; white->full opaque
+                // convert small_icon.png -background black -alpha copy -type truecolormatte PNG32:small_icon_alpha.png
+                nb.setSmallIcon (R.drawable.small_icon_alpha);
+            }
             nb.setTicker (APP_NAME + " sessions");
             nb.setWhen (startTime);
 

@@ -203,6 +203,7 @@ public class MasterPassword {
         }
     }
 
+    @SuppressWarnings("BooleanMethodIsAlwaysInverted")
     private boolean VerifyMasterPassword ()
     {
         try {
@@ -422,6 +423,7 @@ public class MasterPassword {
     }
 
     // newer more secure algorithm
+    @SuppressWarnings("CharsetObjectCanBeUsed")
     private class WrappedCBCStream extends WrappedStreams {
         private SecretKeySpec secretkeyspec;    // used to encrypt/decrypt our data files
 
@@ -476,6 +478,7 @@ public class MasterPassword {
     }
 
     // old default android insecure algorithm
+    @SuppressWarnings("CharsetObjectCanBeUsed")
     private static class WrappedECBStream extends WrappedStreams {
         private SecretKeySpec secretkeyspec;    // used to encrypt/decrypt our data files
 

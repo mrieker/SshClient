@@ -47,14 +47,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
-import java.util.TreeMap;
 
 
 @SuppressLint("SetTextI18n")
 public class MyHostKeyRepo implements HostKeyRepository {
     public static final String TAG = "SshClient";
 
-    private final TreeMap<String,ArrayList<HostKey>> pool;
+    private final NNTreeMap<String,ArrayList<HostKey>> pool;
 
     private AlertDialog currentMenuDialog;
     private SshClient sshclient;
@@ -64,7 +63,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
     {
         sshclient = sc;
         knownhostsfilename = sc.getKnownhostsfilename ();
-        pool = new TreeMap<> ();
+        pool = new NNTreeMap<> ();
         ReadExistingFile ();
     }
 
@@ -82,7 +81,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
         int rc = HostKeyRepository.NOT_INCLUDED;
         synchronized (pool) {
             if (pool.containsKey (host)) {
-                List<HostKey> hks = pool.get (host);
+                List<HostKey> hks = pool.nnget (host);
                 for (HostKey hk : hks) {
                     if (!hk.getHost ().equals (host)) continue;
                     if (Arrays.equals (KeyStr2Bin (hk.getKey ()), key)) {
@@ -110,7 +109,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
             if (!pool.containsKey (host)) {
                 pool.put (host, new ArrayList<HostKey> ());
             }
-            ArrayList<HostKey> list = pool.get (host);
+            ArrayList<HostKey> list = pool.nnget (host);
             list.add (hostkey);
             RewriteFile ();
         }
@@ -128,7 +127,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
         synchronized (pool) {
             if (pool.containsKey (host)) {
                 boolean rewrite = false;
-                ArrayList<HostKey> hks = pool.get (host);
+                ArrayList<HostKey> hks = pool.nnget (host);
                 for (Iterator<HostKey> it = hks.iterator (); it.hasNext ();) {
                     HostKey hk = it.next ();
                     if (hk.getType ().equals (type)) {
@@ -151,7 +150,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
         synchronized (pool) {
             if (pool.containsKey (host)) {
                 boolean rewrite = false;
-                List<HostKey> hks = pool.get (host);
+                List<HostKey> hks = pool.nnget (host);
                 for (Iterator<HostKey> it = hks.iterator (); it.hasNext ();) {
                     HostKey hk = it.next ();
                     if (hk.getType ().equals (type) &&
@@ -173,7 +172,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
         String host = hk.getHost ();
         synchronized (pool) {
             if (pool.containsKey (host)) {
-                List<HostKey> hks = pool.get (host);
+                List<HostKey> hks = pool.nnget (host);
                 for (Iterator<HostKey> it = hks.iterator (); it.hasNext ();) {
                     if (it.next () == hk) {
                         it.remove ();
@@ -247,7 +246,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
                     }
                 }
             } else if (pool.containsKey (host)) {
-                List<HostKey> hks = pool.get (host);
+                List<HostKey> hks = pool.nnget (host);
                 int i = 0;
                 for (HostKey hk : hks) {
                     if ((type == null) || hk.getType ().equals (type)) i ++;
@@ -372,7 +371,7 @@ public class MyHostKeyRepo implements HostKeyRepository {
         try {
             BufferedWriter wtr = sshclient.getMasterPassword ().EncryptedFileWriter (knownhostsfilename + ".tmp");
             for (String host : pool.keySet ()) {
-                for (HostKey hk : pool.get (host)) {
+                for (HostKey hk : pool.nnget (host)) {
                     String type = hk.getType ();
                     String key  = hk.getKey ();
 

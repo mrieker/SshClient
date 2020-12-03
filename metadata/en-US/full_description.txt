@@ -1,0 +1,5 @@
+Open source SSH client that only requires SD card access for file transfers plus internet access privilege.
+
+Includes shell, file transfer, VNC access.
+Can use native Android keyboard or has internal VT-100 keyboard for shell or PC keyboard for VNC.
+Can save passwords, keypairs, port forwarding in files optionally encrypted with a master password.

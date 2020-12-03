@@ -20,6 +20,8 @@
 
 package com.outerworldapps.sshclient;
 
+import android.support.annotation.NonNull;
+
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -231,6 +233,7 @@ public class ZipEntry implements ZipConstants, Cloneable {
      *
      * @return the string representation of this {@code ZipEntry}.
      */
+    @NonNull
     @Override
     public String toString() {
         return name;
@@ -253,6 +256,7 @@ public class ZipEntry implements ZipConstants, Cloneable {
      *
      * On exit, "in" will be positioned at the start of the next entry.
      */
+    @SuppressWarnings("CharsetObjectCanBeUsed")
     ZipEntry (InputStream in) throws IOException {
 
         /*

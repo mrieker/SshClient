@@ -41,10 +41,9 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.util.Set;
-import java.util.TreeMap;
 
 @SuppressLint("SetTextI18n")
-public class SavedLogins extends TreeMap<String,SavedLogin> {
+public class SavedLogins extends NNTreeMap<String,SavedLogin> {
     public static final String TAG = "SshClient";
 
     private AlertDialog currentMenuDialog;
@@ -120,7 +119,7 @@ public class SavedLogins extends TreeMap<String,SavedLogin> {
         for (String sh : keySet ()) {
             Button but = sshclient.MyButton ();
             but.setTag (sh);
-            but.setText (sh + get (sh).getSummary ());
+            but.setText (sh + nnget (sh).getSummary ());
             but.setOnClickListener (butlis);
             llv.addView (but);
         }

@@ -61,7 +61,6 @@ public class NetworkInterfacesView extends TextView {
                 namesb.append (niface.getDisplayName ());
                 Class<? extends NetworkInterface> niclass = niface.getClass ();
                 try {
-                    @SuppressWarnings("JavaReflectionMemberAccess")
                     Method ghwa = niclass.getMethod ("getHardwareAddress");
                     byte[] hwabin = (byte[]) ghwa.invoke (niface);
                     if (hwabin != null) {
