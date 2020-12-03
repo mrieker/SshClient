@@ -80,8 +80,11 @@ public class ScreenTextBuffer {
     public static final short TWA_FGCLR = 128 * 7;
     public static final short TWA_SPCGR = 1024;
 
+    private static final short C_DEFFG = C_WHITE;
+    private static final short C_DEFBG = C_BLACK;
+
     @SuppressWarnings("PointlessArithmeticExpression")
-    public static final short RESET_ATTRS = (TWA_FGCLR & -TWA_FGCLR) * C_WHITE + (TWA_BGCLR & -TWA_BGCLR) * C_BLACK;
+    public static final short RESET_ATTRS = (TWA_FGCLR & -TWA_FGCLR) * C_DEFFG + (TWA_BGCLR & -TWA_BGCLR) * C_DEFBG;
 
     private static final int ESCSEQMAX = 32;
 
@@ -584,6 +587,7 @@ public class ScreenTextBuffer {
 
     /**
      * Process VT-100 escape sequence in escseqbuf.
+     * https://en.wikipedia.org/wiki/ANSI_escape_code
      * http://ascii-table.com/ansi-escape-sequences-vt-100.php
      * http://www.ccs.neu.edu/research/gpc/MSim/vona/terminal/VT100_Escape_Codes.html
      */
@@ -952,9 +956,19 @@ public class ScreenTextBuffer {
                                 attrs |= (TWA_FGCLR & -TWA_FGCLR) * (n - 30);
                                 break;
                             }
+                            case 39: {
+                                attrs &= ~TWA_FGCLR;
+                                attrs |= (TWA_FGCLR & -TWA_FGCLR) * C_DEFFG;
+                                break;
+                            }
                             case 40:case 41:case 42:case 43:case 44:case 45:case 46:case 47: {
                                 attrs &= ~TWA_BGCLR;
                                 attrs |= (TWA_BGCLR & -TWA_BGCLR) * (n - 40);
+                                break;
+                            }
+                            case 49: {
+                                attrs &= ~TWA_BGCLR;
+                                attrs |= (TWA_BGCLR & -TWA_BGCLR) * C_DEFBG;
                                 break;
                             }
                             default: Log.d (TAG, "unhandled escape seq '" + escseqstr + "'");
