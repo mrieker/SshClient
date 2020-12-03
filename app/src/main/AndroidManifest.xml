@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.outerworldapps.sshclient"
-    android:versionCode="20700"
-    android:versionName="2.7" >
+    android:versionCode="20701"
+    android:versionName="2.7.1" >
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.INTERNET" />
