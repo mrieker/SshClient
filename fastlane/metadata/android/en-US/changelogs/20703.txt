@@ -1,0 +1,4 @@
+    change from metadata to fastlane/metadata/android
+    ...also add some changelogs entries
+    
+    remove iml files from repository

@@ -1,0 +1,7 @@
+    * add "don't map beep sound" option
+    * use CBC instead of default EBC mode for master password
+    * jsch 0.1.55
+    * version on help page
+    * compiler warnings
+    * check exceptions writing .enc files
+    * fix crash editing tunnel params

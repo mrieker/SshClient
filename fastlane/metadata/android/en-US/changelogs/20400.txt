@@ -1,0 +1,3 @@
+    - tunneled vnc client
+    - tab stops and reset for shell screen
+    - fix compiler warnings

@@ -1,0 +1,3 @@
+    * add fdroid metadata info
+    * fix accessing root directory for newer android versions
+    * fix notification icon for android L..O versions

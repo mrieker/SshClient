@@ -1,0 +1,2 @@
+    * add support for hardware keyboard keys (ctrl, tab, arrows)
+    * also update build scripts for Android Studio 2.3.3

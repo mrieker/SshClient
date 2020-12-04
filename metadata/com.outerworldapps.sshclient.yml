@@ -8,9 +8,9 @@ RepoType: git
 Repo: https://github.com/mrieker/SshClient.git
 
 Builds:
-  - versionName: '2.7.2'
-    versionCode: 20702
-    commit: v2.7.2
+  - versionName: '2.7.3'
+    versionCode: 20703
+    commit: v2.7.3
     subdir: app
     gradle:
       - yes
