@@ -1,0 +1,1 @@
+    * mark targetSdkVersion 30 so it uploads to google play

@@ -1,0 +1,5 @@
+    * fixed duplicate character input from android keyboard
+      was broken on some devices (such as LG K8 V)
+    
+    * creating keypair with null passphrase would still prompt for passphrase
+      now it creates the keypair with no passphrase instead of one with empty string
