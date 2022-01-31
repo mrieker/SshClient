@@ -25,18 +25,25 @@
 package com.outerworldapps.sshclient;
 
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.StrictMode;
+import android.support.annotation.NonNull;
 import android.text.ClipboardManager;
 import android.util.Log;
 import android.view.Menu;
@@ -901,6 +908,76 @@ public class SshClient extends Activity {
                 return null;
             }
         });
+    }
+
+    /*************************\
+     *  Permission Requests  *
+    \*************************/
+    private HashMap<Integer,Runnable> permissionRequests = new HashMap<> ();
+    private int permreqseq;
+
+    public boolean requestExternalStorageAccess (@NonNull Runnable callback)
+    {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Environment.isExternalStorageManager ()) return true;
+            int seq = ++ permreqseq;
+            permissionRequests.put (seq, callback);
+            Log.i (TAG, "requestExternalStorageAccess:R seq=" + seq);
+            try {
+                Intent intent = new Intent (android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:" + BuildConfig.APPLICATION_ID));
+                this.startActivityForResult (intent, seq);
+                return false;
+            } catch (Exception e) {
+                Log.e (TAG, "unable to request ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION", e);
+                try {
+                    Intent intent = new Intent (android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                    this.startActivityForResult (intent, seq);
+                    return false;
+                } catch (Exception e2) {
+                    Log.e (TAG, "unable to request ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION", e2);
+                }
+            }
+            permissionRequests.remove (seq);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission (Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                int seq = ++ permreqseq;
+                permissionRequests.put (seq, callback);
+                Log.i (TAG, "requestExternalStorageAccess:M seq=" + seq);
+                // https://developer.android.com/reference/android/app/Activity#requestPermissions(java.lang.String[],%20int)
+                requestPermissions (new String[] { Manifest.permission.WRITE_EXTERNAL_STORAGE }, seq);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    @Override
+    public void onRequestPermissionsResult (int requestcode, @NonNull String[] permissions, @NonNull int[] grantResults)
+    {
+        for (int i = 0; (i < permissions.length) && (i < grantResults.length); i ++) {
+            if (grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                Runnable runit = permissionRequests.remove (requestcode);
+                if (runit != null) {
+                    runit.run ();
+                }
+            }
+        }
+    }
+
+    @Override
+    protected void onActivityResult (int requestCode, int resultCode, Intent data)
+    {
+        Log.i (TAG, "onActivityResult: request=" + requestCode + " result=" + resultCode);
+        Runnable runit = permissionRequests.remove (requestCode);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if ((runit != null) && Environment.isExternalStorageManager ()) {
+                runit.run ();
+            }
+        }
     }
 
     /*********************************************************\

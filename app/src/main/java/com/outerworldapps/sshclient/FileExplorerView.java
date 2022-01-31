@@ -1693,7 +1693,6 @@ public class FileExplorerView extends LinearLayout {
         @Override
         public @NonNull <T> T[] toArray (@NonNull T[] array)
         {
-            //noinspection RedundantCast
             return (T[]) list.values ().toArray (array);
         }
 

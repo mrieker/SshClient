@@ -165,7 +165,7 @@ public abstract class KeybdView extends LinearLayout {
                     SharedPreferences.Editor editr = kbv.prefs.edit ();
                     editr.putFloat (kbv.prefName + ".scaleX", kbv.scaleX);
                     editr.putFloat (kbv.prefName + ".scaleY", kbv.scaleY);
-                    editr.commit ();
+                    editr.apply ();
                     break;
                 }
 

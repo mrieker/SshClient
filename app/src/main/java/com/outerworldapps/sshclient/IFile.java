@@ -37,6 +37,8 @@ public abstract class IFile {
 
     public final static IFile[] zeroIFileArray = new IFile[0];
 
+    public boolean requestPermissions (SshClient activity, Runnable callback) { return true; } // request android permissions
+
     public abstract boolean        canRead () throws IOException;       // target of symlink; false if doesn't exist
     public abstract boolean        canWrite () throws IOException;      // target of symlink; false if doesn't exist
     public abstract void           delete () throws IOException;        // symlink itself; exception if doesn't exist

@@ -138,6 +138,12 @@ public class FileIFile extends IFile {
      *  IFile  *
     \***********/
 
+    @Override
+    public boolean requestPermissions (SshClient activity, Runnable callback)
+    {
+        return activity.requestExternalStorageAccess (callback);
+    }
+
     public boolean canRead () { return isKnownReadable () || file.canRead (); }
     public boolean canWrite () { return file.canWrite (); }
     public boolean exists () { return isKnownReadable () || file.exists (); }

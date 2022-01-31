@@ -26,7 +26,6 @@ package com.outerworldapps.sshclient;
 
 import android.annotation.SuppressLint;
 import android.app.ProgressDialog;
-import android.content.Context;
 import android.content.DialogInterface;
 import android.content.res.Resources;
 import android.graphics.Canvas;
@@ -35,7 +34,6 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.AsyncTask;
-import android.os.Environment;
 import android.os.SystemClock;
 import android.support.annotation.NonNull;
 import android.util.Log;
@@ -206,6 +204,7 @@ public class FileExplorerNav extends LinearLayout {
                 // don't actually scan until we are made current, if not already,
                 // simply to avoid unnecessary scanning especially during startup
                 if (explorerView.getCurrentFileNavigator () == FileExplorerNav.this) {
+                    if (! currentDir.requestPermissions (sshclient, this)) return;
                     explorerView.incXfersRunning (1);
                     DirectoryScanner ds = new DirectoryScanner ();
                     ds.execute ();
